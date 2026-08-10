@@ -6,6 +6,8 @@ El formato sigue los lineamientos de Keep a Changelog y el proyecto adhiere al v
 
 ## [No publicado]
 
+## [0.1.0] - 2026-08-10
+
 ### Agregado
 
 - Documento de diseño con el alcance, la arquitectura, el modelo de supresión de falsos positivos y
