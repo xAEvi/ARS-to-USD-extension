@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+.yarn/*
+!.yarn/patches
+!.yarn/releases
+!.yarn/plugins
+!.yarn/sdks
+!.yarn/versions
+.pnp.*
+
+# Build output
+dist/
+.output/
+.wxt/
+*.zip
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Tooling caches
+coverage/
+.vite/
+*.tsbuildinfo
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Logs
+*.log
+yarn-error.log
+npm-debug.log*
