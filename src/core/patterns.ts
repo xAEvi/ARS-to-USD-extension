@@ -32,9 +32,14 @@ const SUFFIX_MARKER_SOURCE = `${ARS_SUFFIX_SOURCE}|${DOLLAR_SUFFIX_SOURCE}`;
  * number, an optional currency marker after it, or both. A match with
  * neither group is not a currency token and must be discarded by the caller,
  * since a bare number is never converted.
+ *
+ * The separating whitespace lives inside the same optional group as its
+ * marker, so it is only consumed when that marker actually matches. Keeping
+ * it outside would let the engine absorb a stray leading or trailing space
+ * even when no marker is present.
  */
 export const TOKEN_PATTERN = new RegExp(
-  String.raw`(?<prefix>${PREFIX_MARKER_SOURCE})?\s?(?<number>${NUMBER_SOURCE})\s?(?<suffix>${SUFFIX_MARKER_SOURCE})?`,
+  String.raw`(?:(?<prefix>${PREFIX_MARKER_SOURCE})\s?)?(?<number>${NUMBER_SOURCE})(?:\s?(?<suffix>${SUFFIX_MARKER_SOURCE}))?`,
   'gi',
 );
 
