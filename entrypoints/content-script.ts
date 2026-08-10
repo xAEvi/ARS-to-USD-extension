@@ -1,6 +1,9 @@
 import { convertToUsd } from '../src/core/converter';
 import { detect, meetsMinConfidence } from '../src/core/detector';
 import { formatUsd } from '../src/core/formatter';
+import { buildInclusionRuleId, type InclusionRule } from '../src/core/inclusion';
+import { parseAmount } from '../src/core/number-parser';
+import { NUMBER_PATTERN } from '../src/core/patterns';
 import {
   buildRuleId,
   matches as matchesRule,
@@ -117,6 +120,83 @@ function handleUnsuppressRequested(
       handleFeedbackRequested,
     );
   });
+}
+
+/**
+ * Finds the `NUMBER_PATTERN` match closest to `offset` within `text`: the
+ * one containing it if any, otherwise the first match found. Used so a text
+ * node with more than one number (e.g. "3 cuotas de $200") picks the one
+ * the user actually selected instead of always the first.
+ */
+function findNumberNearOffset(
+  text: string,
+  offset: number,
+): { rawText: string; start: number; end: number } | undefined {
+  NUMBER_PATTERN.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let fallback: { rawText: string; start: number; end: number } | undefined;
+
+  while ((match = NUMBER_PATTERN.exec(text))) {
+    const start = match.index;
+    const end = start + match[0].length;
+    if (offset >= start && offset <= end)
+      return { rawText: match[0], start, end };
+    fallback ??= { rawText: match[0], start, end };
+  }
+
+  return fallback;
+}
+
+/**
+ * Handles a click on the "Convertir "%s" a USD" context menu item
+ * (DISENO.md section 15.2): reads the live selection instead of the text
+ * carried in the message, since it is still intact on the page by the time
+ * the menu click arrives. Annotates the amount closest to the selection
+ * with high confidence, and remembers the container's structural signature
+ * as an `InclusionRule` so similar pages convert it automatically.
+ */
+function handleManualConvertSelection(rate: ExchangeRate): void {
+  const selection = window.getSelection();
+  const anchorNode = selection?.anchorNode;
+  if (!anchorNode || anchorNode.nodeType !== Node.TEXT_NODE) return;
+
+  const textNode = anchorNode as Text;
+  const container = textNode.parentElement;
+  if (!container) return;
+  if (container.closest('[data-aru-wrap], [contenteditable]')) return;
+
+  const found = findNumberNearOffset(
+    textNode.textContent ?? '',
+    selection!.anchorOffset,
+  );
+  if (!found) return;
+
+  const amount: DetectedAmount = {
+    rawText: found.rawText,
+    startIndex: found.start,
+    endIndex: found.end,
+    valueArs: parseAmount(found.rawText).value,
+    confidence: 'high',
+  };
+
+  injectAnnotationStyles();
+  annotateTextNode(
+    textNode,
+    [amount],
+    (a) => formatUsd(convertToUsd(a.valueArs, rate)),
+    handleFeedbackRequested,
+  );
+
+  const hostname = normalizeHostname(document.location.hostname);
+  const { signatureGroup } = computeSignature(container);
+  const rule: InclusionRule = {
+    id: buildInclusionRuleId(hostname, signatureGroup),
+    hostname,
+    signatureGroup,
+    createdAt: Date.now(),
+  };
+
+  chrome.runtime.sendMessage({ type: 'INCLUSION_ADD', rule } satisfies Message);
 }
 
 /**
@@ -324,6 +404,12 @@ export default defineUnlistedScript(() => {
         activeObserverHandle?.disconnect();
         activeObserverHandle = undefined;
         revert(document.body);
+        sendResponse();
+        return;
+      }
+
+      if (message.type === 'MANUAL_CONVERT_SELECTION') {
+        handleManualConvertSelection(message.rate);
         sendResponse();
         return;
       }

@@ -1,4 +1,5 @@
 import type { Confidence, ExchangeRate } from '../core/types';
+import type { InclusionRule } from '../core/inclusion';
 import type { SuppressionRule } from '../core/suppression';
 
 /** Result of a scan, returned in response to `SCAN_RUN`. */
@@ -22,6 +23,8 @@ export type Message =
   | { type: 'RULES_REMOVE'; hostname: string; ruleId: string }
   | { type: 'RULES_CLEAR'; hostname: string }
   | { type: 'RULES_TOUCH'; hostname: string; ruleIds: Array<string> }
+  | { type: 'INCLUSION_ADD'; rule: InclusionRule }
+  | { type: 'MANUAL_CONVERT_SELECTION'; rate: ExchangeRate }
   | {
       type: 'SCAN_RUN';
       rate: ExchangeRate;

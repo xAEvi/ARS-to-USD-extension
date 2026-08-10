@@ -1,5 +1,6 @@
 import { getConfiguration } from '../config/store';
 import type { Message } from '../shared/messages';
+import { addRule as addInclusionRule } from './inclusion-store';
 import { getRate, refreshRate, type RateResult } from './rate-service';
 import {
   addRule,
@@ -17,11 +18,11 @@ async function handleRateRequest(
 }
 
 /**
- * Registers the background message listener for `RATE_GET`/`RATE_REFRESH`
- * and the `RULES_*` family, resolved against the stored configuration and
- * `suppression-store.ts`. `SCAN_*` messages never reach this listener: the
- * popup sends them straight to the content script via
- * `chrome.tabs.sendMessage`.
+ * Registers the background message listener for `RATE_GET`/`RATE_REFRESH`,
+ * the `RULES_*` family and `INCLUSION_ADD`, resolved against the stored
+ * configuration and `suppression-store.ts`/`inclusion-store.ts`. `SCAN_*`
+ * messages never reach this listener: the popup sends them straight to the
+ * content script via `chrome.tabs.sendMessage`.
  */
 export function registerRouter(): void {
   chrome.runtime.onMessage.addListener(
@@ -64,6 +65,15 @@ export function registerRouter(): void {
         touchRules(message.hostname, message.ruleIds).then(() =>
           sendResponse(),
         );
+        return true;
+      }
+
+      if (message.type === 'INCLUSION_ADD') {
+        getConfiguration()
+          .then((config) =>
+            addInclusionRule(message.rule, config.maxRulesPerHost),
+          )
+          .then(() => sendResponse());
         return true;
       }
 
