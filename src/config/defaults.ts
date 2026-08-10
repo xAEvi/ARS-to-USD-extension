@@ -16,4 +16,5 @@ export const DEFAULT_CONFIGURATION: ArsToUsdConfiguration = {
   rateSide: 'venta',
   rateTtlMs: 10 * 60 * 1000,
   minConfidence: 'medium',
+  maxRulesPerHost: 200,
 };

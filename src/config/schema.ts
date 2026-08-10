@@ -20,4 +20,7 @@ export type ArsToUsdConfiguration = {
 
   /** Minimum confidence level required to annotate a detected amount. */
   minConfidence: Confidence;
+
+  /** Maximum number of suppression rules kept per hostname before LRU pruning. */
+  maxRulesPerHost: number;
 };
