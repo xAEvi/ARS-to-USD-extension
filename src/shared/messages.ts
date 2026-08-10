@@ -29,5 +29,6 @@ export type Message =
       rules: Array<SuppressionRule>;
       showSuppressed: boolean;
       watchMutations: boolean;
+      maxAnnotations: number;
     }
   | { type: 'SCAN_REVERT' };

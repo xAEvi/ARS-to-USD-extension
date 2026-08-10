@@ -24,6 +24,7 @@ import {
 import { buildPageContext } from '../src/page/context';
 import { showFeedbackPopover } from '../src/page/feedback-popover';
 import { observeMutations, type MutationWatcher } from '../src/page/observer';
+import { processInBatches } from '../src/page/scheduler';
 import { computeSignature } from '../src/page/signature';
 import { collectTextNodes } from '../src/page/walker';
 import type { Message, ScanSummary } from '../src/shared/messages';
@@ -118,12 +119,23 @@ function handleUnsuppressRequested(
   });
 }
 
+/**
+ * Scans the page for amounts to annotate, per DISENO.md section 5.4:
+ * processed in batches via `processInBatches` instead of one long
+ * synchronous pass, and stops starting new work once `maxAnnotations`
+ * `[data-aru-wrap]` elements have been created. The text node in progress
+ * when the cap is hit still finishes annotating all of its own matches, so
+ * the final count can exceed `maxAnnotations` by at most that node's match
+ * count -- a deliberate simplification, since the cap exists to avoid
+ * hanging on huge listings, not to be exact to the item.
+ */
 function runScan(
   rate: ExchangeRate,
   minConfidence: Confidence,
   rules: Array<SuppressionRule>,
   showSuppressed: boolean,
-): ScanSummary {
+  maxAnnotations: number,
+): Promise<ScanSummary> {
   injectAnnotationStyles();
 
   const context = buildPageContext(document);
@@ -134,77 +146,87 @@ function runScan(
     suppressed: 0,
   };
   const matchedRuleIds = new Set<string>();
+  let wrapCount = 0;
   const formatAmount = (amount: DetectedAmount): string =>
     formatUsd(convertToUsd(amount.valueArs, rate));
 
-  for (const textNode of collectTextNodes(document.body)) {
-    const container = textNode.parentElement;
-    if (!container) continue;
+  return processInBatches(
+    collectTextNodes(document.body),
+    (textNode) => {
+      const container = textNode.parentElement;
+      if (!container) return;
 
-    const candidates = detect(textNode.textContent ?? '', context).filter(
-      (amount) => meetsMinConfidence(amount.confidence, minConfidence),
-    );
-
-    if (candidates.length === 0) continue;
-
-    // Every candidate in this text node shares the same container, so the
-    // signature is only computed once per node, not once per match.
-    const { signature, signatureGroup } = computeSignature(container);
-
-    const kept: Array<DetectedAmount> = [];
-    const suppressed: Array<SuppressedAmount> = [];
-
-    for (const amount of candidates) {
-      const matchingRules = rules.filter((rule) =>
-        matchesRule(rule, { token: amount.rawText, signature, signatureGroup }),
+      const candidates = detect(textNode.textContent ?? '', context).filter(
+        (amount) => meetsMinConfidence(amount.confidence, minConfidence),
       );
 
-      if (matchingRules.length === 0) {
-        kept.push(amount);
-        continue;
+      if (candidates.length === 0) return;
+
+      // Every candidate in this text node shares the same container, so
+      // the signature is only computed once per node, not once per match.
+      const { signature, signatureGroup } = computeSignature(container);
+
+      const kept: Array<DetectedAmount> = [];
+      const suppressed: Array<SuppressedAmount> = [];
+
+      for (const amount of candidates) {
+        const matchingRules = rules.filter((rule) =>
+          matchesRule(rule, {
+            token: amount.rawText,
+            signature,
+            signatureGroup,
+          }),
+        );
+
+        if (matchingRules.length === 0) {
+          kept.push(amount);
+          continue;
+        }
+
+        summary.suppressed += 1;
+        for (const rule of matchingRules) matchedRuleIds.add(rule.id);
+
+        if (showSuppressed)
+          suppressed.push({
+            ...amount,
+            ruleIds: matchingRules.map((rule) => rule.id),
+            reason: matchingRules[0]!.reason,
+          });
       }
 
-      summary.suppressed += 1;
-      for (const rule of matchingRules) matchedRuleIds.add(rule.id);
+      if (kept.length === 0 && suppressed.length === 0) return;
 
-      if (showSuppressed)
-        suppressed.push({
-          ...amount,
-          ruleIds: matchingRules.map((rule) => rule.id),
-          reason: matchingRules[0]!.reason,
-        });
-    }
+      if (suppressed.length > 0) {
+        annotateMixedTextNode(
+          textNode,
+          kept,
+          suppressed,
+          formatAmount,
+          handleFeedbackRequested,
+          (wrap, amount) =>
+            handleUnsuppressRequested(wrap, amount, rate, hostname),
+        );
+      } else {
+        annotateTextNode(textNode, kept, formatAmount, handleFeedbackRequested);
+      }
 
-    if (kept.length === 0 && suppressed.length === 0) continue;
+      wrapCount += kept.length + suppressed.length;
+      for (const amount of kept) {
+        summary.totalAnnotated += 1;
+        summary.byConfidence[amount.confidence] += 1;
+      }
+    },
+    { shouldContinue: () => wrapCount < maxAnnotations },
+  ).then(() => {
+    if (matchedRuleIds.size > 0)
+      chrome.runtime.sendMessage({
+        type: 'RULES_TOUCH',
+        hostname,
+        ruleIds: [...matchedRuleIds],
+      } satisfies Message);
 
-    if (suppressed.length > 0) {
-      annotateMixedTextNode(
-        textNode,
-        kept,
-        suppressed,
-        formatAmount,
-        handleFeedbackRequested,
-        (wrap, amount) =>
-          handleUnsuppressRequested(wrap, amount, rate, hostname),
-      );
-    } else {
-      annotateTextNode(textNode, kept, formatAmount, handleFeedbackRequested);
-    }
-
-    for (const amount of kept) {
-      summary.totalAnnotated += 1;
-      summary.byConfidence[amount.confidence] += 1;
-    }
-  }
-
-  if (matchedRuleIds.size > 0)
-    chrome.runtime.sendMessage({
-      type: 'RULES_TOUCH',
-      hostname,
-      ruleIds: [...matchedRuleIds],
-    } satisfies Message);
-
-  return summary;
+    return summary;
+  });
 }
 
 /**
@@ -212,14 +234,21 @@ function runScan(
  * produces aren't mistaken for an external change and don't trigger a
  * feedback loop (DISENO.md section 5.4).
  */
-function runScanGuarded(
+async function runScanGuarded(
   rate: ExchangeRate,
   minConfidence: Confidence,
   rules: Array<SuppressionRule>,
   showSuppressed: boolean,
-): ScanSummary {
+  maxAnnotations: number,
+): Promise<ScanSummary> {
   activeObserverHandle?.pause();
-  const summary = runScan(rate, minConfidence, rules, showSuppressed);
+  const summary = await runScan(
+    rate,
+    minConfidence,
+    rules,
+    showSuppressed,
+    maxAnnotations,
+  );
   activeObserverHandle?.resume();
   return summary;
 }
@@ -236,6 +265,7 @@ async function rescanForObserver(
   rate: ExchangeRate,
   minConfidence: Confidence,
   showSuppressed: boolean,
+  maxAnnotations: number,
   hostname: string,
 ): Promise<void> {
   activeObserverHandle?.pause();
@@ -244,7 +274,7 @@ async function rescanForObserver(
       type: 'RULES_GET',
       hostname,
     } satisfies Message)) as Array<SuppressionRule>;
-    runScan(rate, minConfidence, rules, showSuppressed);
+    await runScan(rate, minConfidence, rules, showSuppressed, maxAnnotations);
   } finally {
     activeObserverHandle?.resume();
   }
@@ -263,27 +293,31 @@ export default defineUnlistedScript(() => {
   chrome.runtime.onMessage.addListener(
     (message: Message, _sender, sendResponse) => {
       if (message.type === 'SCAN_RUN') {
-        const summary = runScanGuarded(
-          message.rate,
-          message.minConfidence,
-          message.rules,
-          message.showSuppressed,
-        );
+        void (async () => {
+          const summary = await runScanGuarded(
+            message.rate,
+            message.minConfidence,
+            message.rules,
+            message.showSuppressed,
+            message.maxAnnotations,
+          );
 
-        activeObserverHandle?.disconnect();
-        activeObserverHandle = message.watchMutations
-          ? observeMutations(document.body, () => {
-              void rescanForObserver(
-                message.rate,
-                message.minConfidence,
-                message.showSuppressed,
-                normalizeHostname(document.location.hostname),
-              );
-            })
-          : undefined;
+          activeObserverHandle?.disconnect();
+          activeObserverHandle = message.watchMutations
+            ? observeMutations(document.body, () => {
+                void rescanForObserver(
+                  message.rate,
+                  message.minConfidence,
+                  message.showSuppressed,
+                  message.maxAnnotations,
+                  normalizeHostname(document.location.hostname),
+                );
+              })
+            : undefined;
 
-        sendResponse(summary);
-        return;
+          sendResponse(summary);
+        })();
+        return true;
       }
 
       if (message.type === 'SCAN_REVERT') {

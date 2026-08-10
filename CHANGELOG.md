@@ -29,3 +29,5 @@ El formato sigue los lineamientos de Keep a Changelog y el proyecto adhiere al v
 - Mientras la sesión de conversión sigue activa, la extensión detecta y convierte automáticamente
   los precios nuevos que aparecen sin recargar la página, para dar soporte a sitios que renderizan
   por JavaScript.
+- Un tope de anotaciones por página y un recorrido en lotes evitan que la extensión se cuelgue al
+  convertir listados con miles de precios.

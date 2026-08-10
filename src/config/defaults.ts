@@ -19,4 +19,5 @@ export const DEFAULT_CONFIGURATION: ArsToUsdConfiguration = {
   maxRulesPerHost: 200,
   showSuppressed: false,
   watchMutations: true,
+  maxAnnotations: 500,
 };

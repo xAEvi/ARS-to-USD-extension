@@ -254,6 +254,7 @@ async function runConversion(): Promise<void> {
       rules,
       showSuppressed: config.showSuppressed,
       watchMutations: config.watchMutations,
+      maxAnnotations: config.maxAnnotations,
     };
     const summary = (await chrome.tabs.sendMessage(
       tab.id,

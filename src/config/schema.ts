@@ -29,4 +29,7 @@ export type ArsToUsdConfiguration = {
 
   /** Whether the mutation observer stays active after the initial scan. */
   watchMutations: boolean;
+
+  /** Maximum number of annotations produced in a single page. */
+  maxAnnotations: number;
 };
