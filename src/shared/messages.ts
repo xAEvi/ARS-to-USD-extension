@@ -28,5 +28,6 @@ export type Message =
       minConfidence: Confidence;
       rules: Array<SuppressionRule>;
       showSuppressed: boolean;
+      watchMutations: boolean;
     }
   | { type: 'SCAN_REVERT' };

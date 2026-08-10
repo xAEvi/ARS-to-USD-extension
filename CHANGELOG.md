@@ -26,3 +26,6 @@ El formato sigue los lineamientos de Keep a Changelog y el proyecto adhiere al v
 - La detección usa los datos estructurados (JSON-LD) de la página, cuando están disponibles, para
   reconocer con confianza alta los precios que el sitio ya declaró en pesos y para descartar los
   declarados en otra moneda.
+- Mientras la sesión de conversión sigue activa, la extensión detecta y convierte automáticamente
+  los precios nuevos que aparecen sin recargar la página, para dar soporte a sitios que renderizan
+  por JavaScript.

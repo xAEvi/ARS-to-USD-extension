@@ -26,4 +26,7 @@ export type ArsToUsdConfiguration = {
 
   /** Whether suppressed amounts are rendered with a marker so they can be unmarked in place. */
   showSuppressed: boolean;
+
+  /** Whether the mutation observer stays active after the initial scan. */
+  watchMutations: boolean;
 };

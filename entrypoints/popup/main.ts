@@ -253,6 +253,7 @@ async function runConversion(): Promise<void> {
       minConfidence: config.minConfidence,
       rules,
       showSuppressed: config.showSuppressed,
+      watchMutations: config.watchMutations,
     };
     const summary = (await chrome.tabs.sendMessage(
       tab.id,

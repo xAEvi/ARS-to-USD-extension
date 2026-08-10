@@ -18,4 +18,5 @@ export const DEFAULT_CONFIGURATION: ArsToUsdConfiguration = {
   minConfidence: 'medium',
   maxRulesPerHost: 200,
   showSuppressed: false,
+  watchMutations: true,
 };

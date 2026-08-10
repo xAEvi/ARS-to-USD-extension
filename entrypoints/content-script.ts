@@ -23,9 +23,17 @@ import {
 } from '../src/page/annotator';
 import { buildPageContext } from '../src/page/context';
 import { showFeedbackPopover } from '../src/page/feedback-popover';
+import { observeMutations, type MutationWatcher } from '../src/page/observer';
 import { computeSignature } from '../src/page/signature';
 import { collectTextNodes } from '../src/page/walker';
 import type { Message, ScanSummary } from '../src/shared/messages';
+
+/**
+ * The mutation observer for the current conversion session, if any. Lives
+ * at module scope so it survives across `SCAN_RUN`/`SCAN_REVERT` messages
+ * handled by the same injected script instance.
+ */
+let activeObserverHandle: MutationWatcher | undefined;
 
 /**
  * Opens the false-alarm popover for a clicked amount and, on confirmation,
@@ -199,6 +207,49 @@ function runScan(
   return summary;
 }
 
+/**
+ * Runs a scan with the mutation observer paused, so the annotations it
+ * produces aren't mistaken for an external change and don't trigger a
+ * feedback loop (DISENO.md section 5.4).
+ */
+function runScanGuarded(
+  rate: ExchangeRate,
+  minConfidence: Confidence,
+  rules: Array<SuppressionRule>,
+  showSuppressed: boolean,
+): ScanSummary {
+  activeObserverHandle?.pause();
+  const summary = runScan(rate, minConfidence, rules, showSuppressed);
+  activeObserverHandle?.resume();
+  return summary;
+}
+
+/**
+ * Rescans the page in response to a mutation observed after the initial
+ * scan. Fetches the suppression rules fresh instead of reusing the ones
+ * from the original `SCAN_RUN`: a rule added mid-session (via the feedback
+ * popover or the "mostrar suprimidos" marker) reverts or converts its
+ * target outside of a scan, and the observer would otherwise see that
+ * write and re-annotate it with the stale rule list.
+ */
+async function rescanForObserver(
+  rate: ExchangeRate,
+  minConfidence: Confidence,
+  showSuppressed: boolean,
+  hostname: string,
+): Promise<void> {
+  activeObserverHandle?.pause();
+  try {
+    const rules = (await chrome.runtime.sendMessage({
+      type: 'RULES_GET',
+      hostname,
+    } satisfies Message)) as Array<SuppressionRule>;
+    runScan(rate, minConfidence, rules, showSuppressed);
+  } finally {
+    activeObserverHandle?.resume();
+  }
+}
+
 export default defineUnlistedScript(() => {
   // The popup injects this script on every "Convertir" click, which can
   // execute it more than once per page without a reload. Guard against
@@ -212,18 +263,32 @@ export default defineUnlistedScript(() => {
   chrome.runtime.onMessage.addListener(
     (message: Message, _sender, sendResponse) => {
       if (message.type === 'SCAN_RUN') {
-        sendResponse(
-          runScan(
-            message.rate,
-            message.minConfidence,
-            message.rules,
-            message.showSuppressed,
-          ),
+        const summary = runScanGuarded(
+          message.rate,
+          message.minConfidence,
+          message.rules,
+          message.showSuppressed,
         );
+
+        activeObserverHandle?.disconnect();
+        activeObserverHandle = message.watchMutations
+          ? observeMutations(document.body, () => {
+              void rescanForObserver(
+                message.rate,
+                message.minConfidence,
+                message.showSuppressed,
+                normalizeHostname(document.location.hostname),
+              );
+            })
+          : undefined;
+
+        sendResponse(summary);
         return;
       }
 
       if (message.type === 'SCAN_REVERT') {
+        activeObserverHandle?.disconnect();
+        activeObserverHandle = undefined;
         revert(document.body);
         sendResponse();
         return;
