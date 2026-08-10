@@ -24,6 +24,9 @@ coverage/
 .vite/
 *.tsbuildinfo
 
+# Local agent instructions
+CLAUDE.md
+
 # Editor
 .vscode/*
 !.vscode/extensions.json
