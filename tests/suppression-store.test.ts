@@ -33,8 +33,9 @@ describe('getRules', () => {
 
 describe('addRule', () => {
   it('persists a rule under its hostname', async () => {
-    await addRule(rule(), 200);
-    expect(await getRules('example.com')).toEqual([rule()]);
+    const persisted = rule();
+    await addRule(persisted, 200);
+    expect(await getRules('example.com')).toEqual([persisted]);
   });
 
   it('does not leak rules across hostnames', async () => {
