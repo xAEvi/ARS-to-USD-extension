@@ -16,6 +16,9 @@ por el usuario.
 - Activación: manual, por acción explícita del usuario desde el popup de la extensión.
 - Corrección por parte del usuario: marcar una conversión como falsa alarma y desmarcarla, con
   persistencia por sitio entre visitas.
+- Conversión manual de montos que la detección automática no reconoce (sin marcador de moneda),
+  desde el menú contextual sobre texto seleccionado, con memoria por sitio para páginas similares
+  (ver sección 15).
 
 ### 1.2. Fuera del alcance (v1)
 
@@ -627,3 +630,102 @@ re-render.
 | Firma estructural que deja de matchear tras un rediseño del sitio | Descriptores estables por nivel, alcance `location-group` como red de seguridad, remarcado barato para el usuario |
 | Regla vieja que suprime de más | Conteo de suprimidos en el resumen del escaneo, modo "mostrar suprimidos", borrado por regla y por sitio |
 | Crecimiento indefinido de reglas en `storage.local` | Tope por host y poda LRU por `lastMatchedAt` |
+
+## 15. Conversión manual con memoria
+
+Capacidad agregada después del plan de trabajo original de la sección 13, a pedido explícito del
+usuario. Es, en espíritu, el inverso de la supresión de falsos positivos (sección 6): la supresión
+aprende "esto no es un precio"; esta capacidad aprende "esto sí lo es".
+
+### 15.1. El problema
+
+La sección 3.2 exige un marcador de moneda para convertir cualquier número: "un número suelto nunca
+se convierte". Esto elimina la mayoría de los falsos positivos, pero también produce falsos
+negativos legítimos: un sitio puede mostrar un precio sin ningún símbolo ni palabra de moneda
+adjunta (por ejemplo, un precio tachado al lado de una oferta, mostrado solo como el número). La
+detección automática nunca va a convertir ese caso, por diseño.
+
+### 15.2. Disparo: menú contextual sobre texto seleccionado
+
+El usuario selecciona el texto del monto y hace click derecho. El menú contextual ofrece
+`Convertir "%s" a USD` (`contexts: ['selection']`; Chrome sustituye `%s` por el texto seleccionado).
+
+Se eligió disparar sobre una selección de texto, y no rastrear la posición de cualquier click
+derecho, para no romper el principio de la sección 2.2: el manifiesto no declara `content_scripts`
+y la extensión no toca la página hasta que el usuario hace un gesto explícito. Rastrear todo click
+derecho exigiría un content script declarativo, siempre activo en toda página, escuchando
+`contextmenu` de antemano (la API de menús contextuales no entrega coordenadas ni el elemento del
+DOM en `onClicked`). Seleccionar el texto antes de hacer click derecho es un gesto explícito
+equivalente al de apretar "Convertir" en el popup, sin ese costo arquitectónico.
+
+Al hacer click en el ítem del menú, el background resuelve la configuración y la cotización
+vigente (mismo camino que ya usa para `RATE_GET`), inyecta el content script si hace falta, y le
+manda el mensaje `MANUAL_CONVERT_SELECTION` con la cotización resuelta, dirigido al mismo frame
+donde se hizo el click (`info.frameId`).
+
+El content script lee la selección viva de la página (`window.getSelection()`), no el texto que
+viajó en el mensaje: por el momento en que el click del menú llega, la selección del usuario sigue
+intacta en el documento. Se descarta si el nodo ancla de la selección no es un nodo de texto, o si
+ya está dentro de `[data-aru-wrap]` o `[contenteditable]`. El número a convertir es el que matchea
+más cerca del punto donde arranca la selección (no simplemente el primero del nodo), porque un nodo
+como "3 cuotas de $200" tiene más de un número.
+
+El monto se anota con la misma estructura `[data-aru-wrap]` de siempre, con confianza `high`
+siempre (es una confirmación explícita del usuario, la señal más confiable posible) y reutilizando
+`annotateTextNode` tal cual, incluido el callback de marcado de falsa alarma: un monto convertido a
+mano se puede volver a marcar como falsa alarma con el flujo que ya existe.
+
+### 15.3. Memoria: `InclusionRule`
+
+```typescript
+export type InclusionRule = {
+  /** Stable identifier derived from the hostname and the structural signature. */
+  id: string;
+
+  /** Hostname the rule applies to, with the www prefix removed. */
+  hostname: string;
+
+  /** Structural signature of the container, with positional descriptors removed. */
+  signatureGroup: string;
+
+  /** Creation timestamp, in epoch milliseconds. */
+  createdAt: number;
+
+  /** Last time the rule matched a detection, in epoch milliseconds. */
+  lastMatchedAt?: number;
+};
+```
+
+A diferencia de `SuppressionRule`, no tiene `scope` ni `token`. El pedido es que "páginas similares"
+conviertan solas, que es exactamente el alcance `location-group` de supresión (firma sin
+descriptores posicionales); un alcance `token` casi no sirve acá porque el número cambia de producto
+a producto, y un alcance `location` (posición exacta) tampoco sirve para generalizar entre
+documentos de DOM distintos. Con un solo comportamiento posible, no hace falta el campo `scope`.
+
+Persistencia: `chrome.storage.local`, clave `inclusion:<hostname>`, mismo patrón que
+`suppression-store.ts` (poda LRU por `lastMatchedAt ?? createdAt`, tope `maxRulesPerHost`
+reutilizado de la configuración existente, sin sumar un campo nuevo solo para esto).
+
+### 15.4. Integración en el pipeline de detección
+
+En cada escaneo, además de las reglas de supresión, el content script pide las reglas de inclusión
+del sitio (`INCLUSION_GET`). Para un nodo de texto donde `detect()` no encontró ningún candidato: si
+el sitio no tiene ninguna regla de inclusión, no se hace ningún trabajo extra (costo cero para el
+caso común). Si tiene alguna, se calcula la firma del contenedor y se revisa si matchea
+`signatureGroup`; si matchea, se extrae el número más cercano al principio del texto con el mismo
+patrón de número sin marcador que usa el marcado manual, y se arma un candidato sintético con
+confianza `high`.
+
+Ese candidato sintético sigue exactamente el mismo camino que cualquier otro candidato detectado: el
+filtro de reglas de supresión se aplica igual. Si una regla de inclusión aprendió mal un lugar,
+marcar ese monto como falsa alarma lo corrige sin tocar la regla de inclusión.
+
+### 15.5. Limitación de testing conocida
+
+Los menús contextuales nativos son UI del sistema operativo, no del DOM, y no son automatizables
+con Playwright ni con ninguna herramienta que dependa del protocolo de depuración del navegador. La
+verificación de esta capacidad prueba el resto del flujo end to end (lectura de la selección viva,
+extracción del número, anotación, persistencia de la regla, aplicación en escaneos posteriores)
+invocando directamente los mensajes que dispararía el click del menú, salteando solo el click nativo
+en sí. Es la misma clase de limitación ya documentada para el gesto de `activeTab` en las
+verificaciones manuales de fases anteriores.
