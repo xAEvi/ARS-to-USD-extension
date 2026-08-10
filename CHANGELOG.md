@@ -31,3 +31,8 @@ El formato sigue los lineamientos de Keep a Changelog y el proyecto adhiere al v
   por JavaScript.
 - Un tope de anotaciones por página y un recorrido en lotes evitan que la extensión se cuelgue al
   convertir listados con miles de precios.
+
+### Corregido
+
+- El monto convertido ahora muestra que es clickeable (cursor de mano) para marcarlo como falsa
+  alarma.

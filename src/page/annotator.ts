@@ -28,6 +28,7 @@ export const ANNOTATION_STYLES = `
 [data-aru-usd] {
   opacity: 0.75;
   font-size: 0.9em;
+  cursor: pointer;
 }
 
 [data-aru-wrap][data-aru-confidence="low"] {
