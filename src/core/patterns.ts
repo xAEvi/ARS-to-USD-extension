@@ -24,6 +24,14 @@ const AMBIGUOUS_MARKER_REGEX = new RegExp(`^${AMBIGUOUS_MARKER_SOURCE}$`);
 /** A sequence of digits with `.` and/or `,` as group separators, interpreted later by the number parser. */
 const NUMBER_SOURCE = String.raw`\d+(?:[.,]\d+)*`;
 
+/**
+ * Matches a bare number, without requiring a currency marker. Used for
+ * manual conversions and inclusion rules (DISENO.md section 15), where the
+ * user (or a learned rule) has already confirmed the amount is a price;
+ * `TOKEN_PATTERN`'s marker requirement does not apply there.
+ */
+export const NUMBER_PATTERN = new RegExp(NUMBER_SOURCE, 'g');
+
 const PREFIX_MARKER_SOURCE = `${DOLLAR_PREFIX_SOURCE}|${ARS_PREFIX_SOURCE}|${AMBIGUOUS_MARKER_SOURCE}`;
 const SUFFIX_MARKER_SOURCE = `${ARS_SUFFIX_SOURCE}|${DOLLAR_SUFFIX_SOURCE}`;
 
