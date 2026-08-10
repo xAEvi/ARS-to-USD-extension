@@ -6,6 +6,8 @@ El formato sigue los lineamientos de Keep a Changelog y el proyecto adhiere al v
 
 ## [No publicado]
 
+## [0.2.0] - 2026-08-10
+
 ### Agregado
 
 - Desde el menú contextual (click derecho) se puede seleccionar un monto que la extensión no
