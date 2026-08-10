@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>ARS to USD</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main>
+      <h1>ARS a USD</h1>
+
+      <section id="rate-status" aria-live="polite">
+        <p id="rate-value">Cargando cotización...</p>
+        <p id="rate-meta"></p>
+      </section>
+
+      <section id="rate-config">
+        <label for="rate-source">Fuente de la cotización</label>
+        <select id="rate-source">
+          <option value="official">Oficial</option>
+          <option value="manual">Manual</option>
+        </select>
+
+        <div id="manual-rate-field" hidden>
+          <label for="manual-rate">Cotización manual (ARS por USD)</label>
+          <input id="manual-rate" type="number" min="0" step="0.01" />
+          <p id="manual-rate-error" class="error" hidden></p>
+        </div>
+      </section>
+
+      <section id="actions">
+        <button id="convert" type="button" disabled>Convertir</button>
+        <button id="revert" type="button" disabled>Revertir</button>
+      </section>
+
+      <p id="scan-result" aria-live="polite"></p>
+    </main>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

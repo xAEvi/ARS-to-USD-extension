@@ -46,6 +46,15 @@ function runScan(rate: ExchangeRate, minConfidence: Confidence): ScanSummary {
 }
 
 export default defineUnlistedScript(() => {
+  // The popup injects this script on every "Convertir" click, which can
+  // execute it more than once per page without a reload. Guard against
+  // registering duplicate listeners.
+  const injectedWindow = window as typeof window & {
+    __aruContentScriptLoaded?: boolean;
+  };
+  if (injectedWindow.__aruContentScriptLoaded) return;
+  injectedWindow.__aruContentScriptLoaded = true;
+
   chrome.runtime.onMessage.addListener(
     (message: Message, _sender, sendResponse) => {
       if (message.type === 'SCAN_RUN') {
