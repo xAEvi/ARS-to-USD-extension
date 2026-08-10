@@ -78,3 +78,30 @@ export async function removeRule(
 export async function clearRules(hostname: string): Promise<void> {
   await setStorageValue(storageKey(hostname), []);
 }
+
+/**
+ * Marks the given rules as having just suppressed a detection, so the LRU
+ * pruning in `addRule` can order by actual usage instead of falling back to
+ * `createdAt`.
+ *
+ * @param {string} hostname The normalized hostname the rules belong to.
+ * @param {Array<string>} ruleIds Ids of the rules that matched during a scan.
+ * @returns {Promise<void>} A promise that resolves once the update is persisted.
+ */
+export async function touchRules(
+  hostname: string,
+  ruleIds: Array<string>,
+): Promise<void> {
+  if (ruleIds.length === 0) return;
+
+  const rules = await getRules(hostname);
+  const matchedIds = new Set(ruleIds);
+  const now = Date.now();
+
+  await setStorageValue(
+    storageKey(hostname),
+    rules.map((rule) =>
+      matchedIds.has(rule.id) ? { ...rule, lastMatchedAt: now } : rule,
+    ),
+  );
+}

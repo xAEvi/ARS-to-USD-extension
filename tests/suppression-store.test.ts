@@ -4,6 +4,7 @@ import {
   clearRules,
   getRules,
   removeRule,
+  touchRules,
 } from '../src/background/suppression-store';
 import type { SuppressionRule } from '../src/core/suppression';
 import { resetFakeChromeStorage } from './setup/chrome-storage';
@@ -118,5 +119,38 @@ describe('clearRules', () => {
     await clearRules('example.com');
 
     expect(await getRules('example.com')).toEqual([]);
+  });
+});
+
+describe('touchRules', () => {
+  it('sets lastMatchedAt only on the matched rules', async () => {
+    await addRule(rule({ id: 'a', signature: '.a' }), 200);
+    await addRule(rule({ id: 'b', signature: '.b' }), 200);
+
+    await touchRules('example.com', ['a']);
+
+    const rules = await getRules('example.com');
+    const a = rules.find((r) => r.id === 'a');
+    const b = rules.find((r) => r.id === 'b');
+    expect(a?.lastMatchedAt).toBeDefined();
+    expect(b?.lastMatchedAt).toBeUndefined();
+  });
+
+  it('does nothing for ids that are not present', async () => {
+    await addRule(rule({ id: 'a', signature: '.a' }), 200);
+
+    await touchRules('example.com', ['unknown']);
+
+    const rules = await getRules('example.com');
+    expect(rules[0]?.lastMatchedAt).toBeUndefined();
+  });
+
+  it('is a no-op for an empty list of ids', async () => {
+    await addRule(rule({ id: 'a', signature: '.a' }), 200);
+
+    await touchRules('example.com', []);
+
+    const rules = await getRules('example.com');
+    expect(rules[0]?.lastMatchedAt).toBeUndefined();
   });
 });
