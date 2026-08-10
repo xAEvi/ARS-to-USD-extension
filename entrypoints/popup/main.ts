@@ -3,6 +3,10 @@ import {
   type RateResult,
 } from '../../src/background/rate-service';
 import { getConfiguration, setConfiguration } from '../../src/config/store';
+import {
+  normalizeHostname,
+  type SuppressionRule,
+} from '../../src/core/suppression';
 import type { RateProvider } from '../../src/core/types';
 import type { Message, ScanSummary } from '../../src/shared/messages';
 
@@ -132,10 +136,21 @@ async function runConversion(): Promise<void> {
     });
 
     const config = await getConfiguration();
+    const hostname = tab.url
+      ? normalizeHostname(new URL(tab.url).hostname)
+      : '';
+    const rules = hostname
+      ? ((await chrome.runtime.sendMessage({
+          type: 'RULES_GET',
+          hostname,
+        } satisfies Message)) as Array<SuppressionRule>)
+      : [];
+
     const scanMessage: Message = {
       type: 'SCAN_RUN',
       rate: rateResult.rate,
       minConfidence: config.minConfidence,
+      rules,
     };
     const summary = (await chrome.tabs.sendMessage(
       tab.id,

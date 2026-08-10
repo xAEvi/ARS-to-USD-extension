@@ -15,3 +15,7 @@ El formato sigue los lineamientos de Keep a Changelog y el proyecto adhiere al v
   cotización vigente (fuente, valor y antigüedad), permite elegir entre cotización oficial o
   manual, y el botón "Convertir" detecta precios en pesos en la página activa y anexa su
   equivalente en dólares. El botón "Revertir" deshace la anotación.
+- Marcado de falsas alarmas: al hacer click en un monto convertido se puede indicar "No es un
+  precio" o "No está en pesos", con la opción de aplicar la corrección a todos los casos similares
+  de la página. La marca persiste por sitio y evita que ese mismo monto se vuelva a convertir en
+  visitas futuras.

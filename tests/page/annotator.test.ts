@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { detect } from '../../src/core/detector';
 import type { DetectedAmount, PageContext } from '../../src/core/types';
 import {
   annotateTextNode,
   injectAnnotationStyles,
   revert,
+  revertWrap,
 } from '../../src/page/annotator';
 import { collectTextNodes } from '../../src/page/walker';
 
@@ -83,6 +84,40 @@ describe('annotateTextNode', () => {
     expect(wrap.getAttribute('data-aru-confidence')).toBe('low');
     expect(wrap.getAttribute('title')).toContain('baja confianza');
   });
+
+  it('calls onFeedbackRequested with preventDefault/stopPropagation applied when the usd span is clicked', () => {
+    document.body.innerHTML = '<a href="/product"><p>Precio: $1.500</p></a>';
+    const paragraph = document.querySelector('p')!;
+    const link = document.querySelector('a')!;
+    const [textNode] = collectTextNodes(paragraph);
+    const matches = detect(textNode!.textContent!, context());
+    const onFeedbackRequested = vi.fn();
+
+    annotateTextNode(textNode!, matches, formatAmount, onFeedbackRequested);
+
+    const wrap = paragraph.querySelector('[data-aru-wrap]')!;
+    const usdSpan = wrap.querySelector<HTMLElement>('[data-aru-usd]')!;
+    const navigationListener = vi.fn();
+    link.addEventListener('click', navigationListener);
+
+    usdSpan.click();
+
+    expect(onFeedbackRequested).toHaveBeenCalledWith(wrap, matches[0]);
+    // stopPropagation means the click never bubbles up to the surrounding <a>.
+    expect(navigationListener).not.toHaveBeenCalled();
+  });
+
+  it('does not attach a click listener when onFeedbackRequested is not provided', () => {
+    document.body.innerHTML = '<p>Precio: $1.500</p>';
+    const paragraph = document.querySelector('p')!;
+    const [textNode] = collectTextNodes(paragraph);
+    const matches = detect(textNode!.textContent!, context());
+
+    annotateTextNode(textNode!, matches, formatAmount);
+
+    const usdSpan = paragraph.querySelector<HTMLElement>('[data-aru-usd]')!;
+    expect(() => usdSpan.click()).not.toThrow();
+  });
 });
 
 describe('revert', () => {
@@ -98,6 +133,24 @@ describe('revert', () => {
     expect(paragraph.querySelectorAll('[data-aru-wrap]')).toHaveLength(0);
     expect(paragraph.textContent).toBe('Antes $2.000, ahora $1.500.');
     expect(paragraph.childNodes).toHaveLength(1);
+  });
+});
+
+describe('revertWrap', () => {
+  it('reverts only the targeted wrap, leaving the others intact', () => {
+    document.body.innerHTML = '<p>Antes $2.000, ahora $1.500.</p>';
+    const paragraph = document.querySelector('p')!;
+    const [textNode] = collectTextNodes(paragraph);
+    const matches = detect(textNode!.textContent!, context());
+    annotateTextNode(textNode!, matches, formatAmount);
+
+    const wraps = paragraph.querySelectorAll('[data-aru-wrap]');
+    revertWrap(wraps[0]!);
+
+    expect(paragraph.querySelectorAll('[data-aru-wrap]')).toHaveLength(1);
+    expect(paragraph.textContent).toBe(
+      'Antes $2.000, ahora $1.500 (USD 1.50).',
+    );
   });
 });
 

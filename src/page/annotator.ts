@@ -51,11 +51,13 @@ export function injectAnnotationStyles(target: Document = document): void {
  * @param {Text} textNode The text node to annotate. Must not already be wrapped.
  * @param {Array<DetectedAmount>} matches The amounts to annotate, as returned by `detect`.
  * @param {(amount: DetectedAmount) => string} formatAmount Produces the USD text to append for an amount.
+ * @param {(wrap: HTMLElement, amount: DetectedAmount) => void} [onFeedbackRequested] Called when the `[data-aru-usd]` span is clicked, to open the false-alarm popover (DISENO.md section 6.7).
  */
 export function annotateTextNode(
   textNode: Text,
   matches: Array<DetectedAmount>,
   formatAmount: (amount: DetectedAmount) => string,
+  onFeedbackRequested?: (wrap: HTMLElement, amount: DetectedAmount) => void,
 ): void {
   const ownerDocument = textNode.ownerDocument;
   if (!ownerDocument) return;
@@ -79,10 +81,40 @@ export function annotateTextNode(
     usdSpan.setAttribute('data-aru-usd', '');
     usdSpan.textContent = ` (${formatAmount(match)})`;
 
+    if (onFeedbackRequested) {
+      // Annotations often sit inside a product card <a>; without this the
+      // click would also navigate the page (DISENO.md section 6.7).
+      usdSpan.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onFeedbackRequested(wrap, match);
+      });
+    }
+
     matchNode.replaceWith(wrap);
     wrap.appendChild(matchNode);
     wrap.appendChild(usdSpan);
   }
+}
+
+function revertOne(wrap: Element): void {
+  const ownerDocument = wrap.ownerDocument;
+  const original = wrap.getAttribute('data-aru-original') ?? '';
+  const parent = wrap.parentNode;
+
+  wrap.replaceWith(ownerDocument.createTextNode(original));
+  parent?.normalize();
+}
+
+/**
+ * Reverts a single annotation, per DISENO.md section 5.2. Used to revert
+ * the specific wrap the user clicked, and any equivalent ones when a
+ * `location-group` suppression rule was just added.
+ *
+ * @param {Element} wrap The `[data-aru-wrap]` element to revert.
+ */
+export function revertWrap(wrap: Element): void {
+  revertOne(wrap);
 }
 
 /**
@@ -94,12 +126,5 @@ export function annotateTextNode(
  * @param {ParentNode} root The subtree to revert.
  */
 export function revert(root: ParentNode): void {
-  for (const wrap of root.querySelectorAll('[data-aru-wrap]')) {
-    const ownerDocument = wrap.ownerDocument;
-    const original = wrap.getAttribute('data-aru-original') ?? '';
-    const parent = wrap.parentNode;
-
-    wrap.replaceWith(ownerDocument.createTextNode(original));
-    parent?.normalize();
-  }
+  for (const wrap of root.querySelectorAll('[data-aru-wrap]')) revertOne(wrap);
 }
