@@ -1,7 +1,11 @@
 import { convertToUsd } from '../src/core/converter';
 import { detect, meetsMinConfidence } from '../src/core/detector';
 import { formatUsd } from '../src/core/formatter';
-import { buildInclusionRuleId, type InclusionRule } from '../src/core/inclusion';
+import {
+  buildInclusionRuleId,
+  matchesInclusion,
+  type InclusionRule,
+} from '../src/core/inclusion';
 import { parseAmount } from '../src/core/number-parser';
 import { NUMBER_PATTERN } from '../src/core/patterns';
 import {
@@ -208,11 +212,20 @@ function handleManualConvertSelection(rate: ExchangeRate): void {
  * the final count can exceed `maxAnnotations` by at most that node's match
  * count -- a deliberate simplification, since the cap exists to avoid
  * hanging on huge listings, not to be exact to the item.
+ *
+ * Nodes where `detect()` found nothing are also checked against saved
+ * `InclusionRule`s (DISENO.md section 15.4), but only when the site has any
+ * saved: that keeps the cost at zero for sites that never used manual
+ * conversion. A matching node gets a synthetic high-confidence candidate
+ * from the same lenient number extraction the manual conversion uses, and
+ * from there follows the exact same path as any other candidate, including
+ * the suppression filter.
  */
 function runScan(
   rate: ExchangeRate,
   minConfidence: Confidence,
   rules: Array<SuppressionRule>,
+  inclusionRules: Array<InclusionRule>,
   showSuppressed: boolean,
   maxAnnotations: number,
 ): Promise<ScanSummary> {
@@ -226,6 +239,7 @@ function runScan(
     suppressed: 0,
   };
   const matchedRuleIds = new Set<string>();
+  const matchedInclusionRuleIds = new Set<string>();
   let wrapCount = 0;
   const formatAmount = (amount: DetectedAmount): string =>
     formatUsd(convertToUsd(amount.valueArs, rate));
@@ -236,15 +250,39 @@ function runScan(
       const container = textNode.parentElement;
       if (!container) return;
 
-      const candidates = detect(textNode.textContent ?? '', context).filter(
+      let candidates = detect(textNode.textContent ?? '', context).filter(
         (amount) => meetsMinConfidence(amount.confidence, minConfidence),
       );
 
-      if (candidates.length === 0) return;
+      if (candidates.length === 0 && inclusionRules.length === 0) return;
 
-      // Every candidate in this text node shares the same container, so
-      // the signature is only computed once per node, not once per match.
+      // Every candidate (detected or inclusion-matched) in this text node
+      // shares the same container, so the signature is only computed once
+      // per node, not once per match.
       const { signature, signatureGroup } = computeSignature(container);
+
+      if (candidates.length === 0) {
+        const matchingInclusionRules = inclusionRules.filter((rule) =>
+          matchesInclusion(rule, { signatureGroup }),
+        );
+        if (matchingInclusionRules.length === 0) return;
+
+        const found = findNumberNearOffset(textNode.textContent ?? '', 0);
+        if (!found) return;
+
+        for (const rule of matchingInclusionRules)
+          matchedInclusionRuleIds.add(rule.id);
+
+        candidates = [
+          {
+            rawText: found.rawText,
+            startIndex: found.start,
+            endIndex: found.end,
+            valueArs: parseAmount(found.rawText).value,
+            confidence: 'high',
+          },
+        ];
+      }
 
       const kept: Array<DetectedAmount> = [];
       const suppressed: Array<SuppressedAmount> = [];
@@ -305,6 +343,13 @@ function runScan(
         ruleIds: [...matchedRuleIds],
       } satisfies Message);
 
+    if (matchedInclusionRuleIds.size > 0)
+      chrome.runtime.sendMessage({
+        type: 'INCLUSION_TOUCH',
+        hostname,
+        ruleIds: [...matchedInclusionRuleIds],
+      } satisfies Message);
+
     return summary;
   });
 }
@@ -318,6 +363,7 @@ async function runScanGuarded(
   rate: ExchangeRate,
   minConfidence: Confidence,
   rules: Array<SuppressionRule>,
+  inclusionRules: Array<InclusionRule>,
   showSuppressed: boolean,
   maxAnnotations: number,
 ): Promise<ScanSummary> {
@@ -326,6 +372,7 @@ async function runScanGuarded(
     rate,
     minConfidence,
     rules,
+    inclusionRules,
     showSuppressed,
     maxAnnotations,
   );
@@ -335,11 +382,12 @@ async function runScanGuarded(
 
 /**
  * Rescans the page in response to a mutation observed after the initial
- * scan. Fetches the suppression rules fresh instead of reusing the ones
- * from the original `SCAN_RUN`: a rule added mid-session (via the feedback
- * popover or the "mostrar suprimidos" marker) reverts or converts its
- * target outside of a scan, and the observer would otherwise see that
- * write and re-annotate it with the stale rule list.
+ * scan. Fetches the suppression and inclusion rules fresh instead of
+ * reusing the ones from the original `SCAN_RUN`: a rule added mid-session
+ * (via the feedback popover, the "mostrar suprimidos" marker, or the
+ * context menu) reverts, converts or learns its target outside of a scan,
+ * and the observer would otherwise see that write and re-annotate it with
+ * the stale rule lists.
  */
 async function rescanForObserver(
   rate: ExchangeRate,
@@ -350,11 +398,24 @@ async function rescanForObserver(
 ): Promise<void> {
   activeObserverHandle?.pause();
   try {
-    const rules = (await chrome.runtime.sendMessage({
-      type: 'RULES_GET',
-      hostname,
-    } satisfies Message)) as Array<SuppressionRule>;
-    await runScan(rate, minConfidence, rules, showSuppressed, maxAnnotations);
+    const [rules, inclusionRules] = await Promise.all([
+      chrome.runtime.sendMessage({
+        type: 'RULES_GET',
+        hostname,
+      } satisfies Message) as Promise<Array<SuppressionRule>>,
+      chrome.runtime.sendMessage({
+        type: 'INCLUSION_GET',
+        hostname,
+      } satisfies Message) as Promise<Array<InclusionRule>>,
+    ]);
+    await runScan(
+      rate,
+      minConfidence,
+      rules,
+      inclusionRules,
+      showSuppressed,
+      maxAnnotations,
+    );
   } finally {
     activeObserverHandle?.resume();
   }
@@ -378,6 +439,7 @@ export default defineUnlistedScript(() => {
             message.rate,
             message.minConfidence,
             message.rules,
+            message.inclusionRules,
             message.showSuppressed,
             message.maxAnnotations,
           );

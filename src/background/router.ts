@@ -1,6 +1,10 @@
 import { getConfiguration } from '../config/store';
 import type { Message } from '../shared/messages';
-import { addRule as addInclusionRule } from './inclusion-store';
+import {
+  addRule as addInclusionRule,
+  getRules as getInclusionRules,
+  touchRules as touchInclusionRules,
+} from './inclusion-store';
 import { getRate, refreshRate, type RateResult } from './rate-service';
 import {
   addRule,
@@ -68,12 +72,24 @@ export function registerRouter(): void {
         return true;
       }
 
+      if (message.type === 'INCLUSION_GET') {
+        getInclusionRules(message.hostname).then(sendResponse);
+        return true;
+      }
+
       if (message.type === 'INCLUSION_ADD') {
         getConfiguration()
           .then((config) =>
             addInclusionRule(message.rule, config.maxRulesPerHost),
           )
           .then(() => sendResponse());
+        return true;
+      }
+
+      if (message.type === 'INCLUSION_TOUCH') {
+        touchInclusionRules(message.hostname, message.ruleIds).then(() =>
+          sendResponse(),
+        );
         return true;
       }
 

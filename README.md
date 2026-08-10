@@ -35,6 +35,9 @@ Version actual: `0.1.0`.
   conversion sigue activa, los precios que aparecen despues del primer escaneo tambien se anotan.
 - Tope de anotaciones por pagina y recorrido en lotes para no colgar el navegador en listados con
   miles de precios.
+- Conversion manual desde el menu contextual: seleccionar un monto que la deteccion automatica no
+  reconocio y convertirlo a mano. La extension recuerda el lugar por sitio, asi paginas similares
+  lo convierten solas de ahi en adelante.
 
 ## Instalacion (para desarrollo)
 

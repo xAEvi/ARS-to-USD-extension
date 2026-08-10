@@ -3,6 +3,7 @@ import {
   type RateResult,
 } from '../../src/background/rate-service';
 import { getConfiguration, setConfiguration } from '../../src/config/store';
+import type { InclusionRule } from '../../src/core/inclusion';
 import {
   normalizeHostname,
   type SuppressionReason,
@@ -246,12 +247,19 @@ async function runConversion(): Promise<void> {
           hostname,
         } satisfies Message)) as Array<SuppressionRule>)
       : [];
+    const inclusionRules = hostname
+      ? ((await chrome.runtime.sendMessage({
+          type: 'INCLUSION_GET',
+          hostname,
+        } satisfies Message)) as Array<InclusionRule>)
+      : [];
 
     const scanMessage: Message = {
       type: 'SCAN_RUN',
       rate: rateResult.rate,
       minConfidence: config.minConfidence,
       rules,
+      inclusionRules,
       showSuppressed: config.showSuppressed,
       watchMutations: config.watchMutations,
       maxAnnotations: config.maxAnnotations,

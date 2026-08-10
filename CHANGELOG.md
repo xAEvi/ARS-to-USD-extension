@@ -10,6 +10,8 @@ El formato sigue los lineamientos de Keep a Changelog y el proyecto adhiere al v
 
 - Desde el menú contextual (click derecho) se puede seleccionar un monto que la extensión no
   detectó y convertirlo a dólares a mano.
+- Los montos convertidos a mano se recuerdan por sitio, así las páginas parecidas los convierten
+  solas en los próximos escaneos.
 
 ## [0.1.0] - 2026-08-10
 
