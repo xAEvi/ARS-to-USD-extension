@@ -1,4 +1,5 @@
 import type { PageContext } from '../core/types';
+import { readStructuredData } from './structured-data';
 
 const ARGENTINE_TLD_PATTERN = /\.ar$/i;
 const ARGENTINE_LOCALE_PATTERN = /^es[-_]ar$/i;
@@ -12,8 +13,6 @@ function readOgLocale(doc: Document): string | undefined {
 
 /**
  * Builds the `PageContext` for a document per DISENO.md section 3.1.
- * `declaredArsPrices` and `hasForeignCurrencyMarkup` stay at their neutral
- * defaults until Fase 7 adds JSON-LD parsing (`structured-data.ts`).
  *
  * @param {Document} doc The document to read signals from.
  * @param {string} [hostname] The hostname to use. Defaults to `doc.location.hostname`; overridable for tests.
@@ -25,6 +24,8 @@ export function buildPageContext(
 ): PageContext {
   const documentLanguage = doc.documentElement.lang || undefined;
   const ogLocale = readOgLocale(doc);
+  const { declaredArsPrices, hasForeignCurrencyMarkup } =
+    readStructuredData(doc);
 
   return {
     hostname,
@@ -33,7 +34,7 @@ export function buildPageContext(
     isArgentineLocale:
       ARGENTINE_LOCALE_PATTERN.test(documentLanguage ?? '') ||
       ARGENTINE_LOCALE_PATTERN.test(ogLocale ?? ''),
-    declaredArsPrices: new Set(),
-    hasForeignCurrencyMarkup: false,
+    declaredArsPrices,
+    hasForeignCurrencyMarkup,
   };
 }

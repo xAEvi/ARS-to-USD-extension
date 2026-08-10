@@ -42,9 +42,37 @@ describe('buildPageContext', () => {
     expect(context.isArgentineLocale).toBe(false);
   });
 
-  it('starts with neutral structured data signals', () => {
+  it('has neutral structured data signals when there is no JSON-LD', () => {
     const context = buildPageContext(document, 'tienda.com.ar');
     expect(context.declaredArsPrices.size).toBe(0);
     expect(context.hasForeignCurrencyMarkup).toBe(false);
+  });
+
+  it('reads declared ARS prices from a JSON-LD Offer', () => {
+    const script = document.createElement('script');
+    script.type = 'application/ld+json';
+    script.textContent = JSON.stringify({
+      '@type': 'Offer',
+      price: '15000',
+      priceCurrency: 'ARS',
+    });
+    document.head.appendChild(script);
+
+    const context = buildPageContext(document, 'tienda.com.ar');
+    expect(context.declaredArsPrices.has(15000)).toBe(true);
+  });
+
+  it('flags foreign currency markup from a JSON-LD Offer', () => {
+    const script = document.createElement('script');
+    script.type = 'application/ld+json';
+    script.textContent = JSON.stringify({
+      '@type': 'Offer',
+      price: 12,
+      priceCurrency: 'USD',
+    });
+    document.head.appendChild(script);
+
+    const context = buildPageContext(document, 'tienda.com.ar');
+    expect(context.hasForeignCurrencyMarkup).toBe(true);
   });
 });

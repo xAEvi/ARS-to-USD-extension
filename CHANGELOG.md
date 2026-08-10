@@ -23,3 +23,6 @@ El formato sigue los lineamientos de Keep a Changelog y el proyecto adhiere al v
   motivo y alcance, y permite quitar una regla puntual o limpiar todas las del sitio.
 - Modo "mostrar suprimidos": en vez de ocultar los montos bloqueados por una regla, los marca con
   un indicador discreto que, al hacer click, elimina la regla y convierte el monto en el acto.
+- La detección usa los datos estructurados (JSON-LD) de la página, cuando están disponibles, para
+  reconocer con confianza alta los precios que el sitio ya declaró en pesos y para descartar los
+  declarados en otra moneda.
