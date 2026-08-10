@@ -1,0 +1,20 @@
+import type { RateSide } from '../core/types';
+
+/**
+ * User configurable behavior of the extension. Only the fields consumed by
+ * the rate service exist so far; the rest of DISENO.md section 8 is added
+ * incrementally as later phases need it.
+ */
+export type ArsToUsdConfiguration = {
+  /** Source used to obtain the exchange rate. */
+  rateSource: 'official' | 'manual';
+
+  /** Manual exchange rate in ARS per USD. Only used when rateSource is manual. */
+  manualRate: number;
+
+  /** Side of the official quote used for the conversion. */
+  rateSide: RateSide;
+
+  /** Cache lifetime for the official rate, in milliseconds. */
+  rateTtlMs: number;
+};
