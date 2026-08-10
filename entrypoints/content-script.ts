@@ -2,13 +2,6 @@ import { convertToUsd } from '../src/core/converter';
 import { detect, meetsMinConfidence } from '../src/core/detector';
 import { formatUsd } from '../src/core/formatter';
 import {
-  buildInclusionRuleId,
-  matchesInclusion,
-  type InclusionRule,
-} from '../src/core/inclusion';
-import { parseAmount } from '../src/core/number-parser';
-import { NUMBER_PATTERN } from '../src/core/patterns';
-import {
   buildRuleId,
   matches as matchesRule,
   normalizeHostname,
@@ -127,83 +120,6 @@ function handleUnsuppressRequested(
 }
 
 /**
- * Finds the `NUMBER_PATTERN` match closest to `offset` within `text`: the
- * one containing it if any, otherwise the first match found. Used so a text
- * node with more than one number (e.g. "3 cuotas de $200") picks the one
- * the user actually selected instead of always the first.
- */
-function findNumberNearOffset(
-  text: string,
-  offset: number,
-): { rawText: string; start: number; end: number } | undefined {
-  NUMBER_PATTERN.lastIndex = 0;
-  let match: RegExpExecArray | null;
-  let fallback: { rawText: string; start: number; end: number } | undefined;
-
-  while ((match = NUMBER_PATTERN.exec(text))) {
-    const start = match.index;
-    const end = start + match[0].length;
-    if (offset >= start && offset <= end)
-      return { rawText: match[0], start, end };
-    fallback ??= { rawText: match[0], start, end };
-  }
-
-  return fallback;
-}
-
-/**
- * Handles a click on the "Convertir "%s" a USD" context menu item
- * (DISENO.md section 15.2): reads the live selection instead of the text
- * carried in the message, since it is still intact on the page by the time
- * the menu click arrives. Annotates the amount closest to the selection
- * with high confidence, and remembers the container's structural signature
- * as an `InclusionRule` so similar pages convert it automatically.
- */
-function handleManualConvertSelection(rate: ExchangeRate): void {
-  const selection = window.getSelection();
-  const anchorNode = selection?.anchorNode;
-  if (!anchorNode || anchorNode.nodeType !== Node.TEXT_NODE) return;
-
-  const textNode = anchorNode as Text;
-  const container = textNode.parentElement;
-  if (!container) return;
-  if (container.closest('[data-aru-wrap], [contenteditable]')) return;
-
-  const found = findNumberNearOffset(
-    textNode.textContent ?? '',
-    selection!.anchorOffset,
-  );
-  if (!found) return;
-
-  const amount: DetectedAmount = {
-    rawText: found.rawText,
-    startIndex: found.start,
-    endIndex: found.end,
-    valueArs: parseAmount(found.rawText).value,
-    confidence: 'high',
-  };
-
-  injectAnnotationStyles();
-  annotateTextNode(
-    textNode,
-    [amount],
-    (a) => formatUsd(convertToUsd(a.valueArs, rate)),
-    handleFeedbackRequested,
-  );
-
-  const hostname = normalizeHostname(document.location.hostname);
-  const { signatureGroup } = computeSignature(container);
-  const rule: InclusionRule = {
-    id: buildInclusionRuleId(hostname, signatureGroup),
-    hostname,
-    signatureGroup,
-    createdAt: Date.now(),
-  };
-
-  chrome.runtime.sendMessage({ type: 'INCLUSION_ADD', rule } satisfies Message);
-}
-
-/**
  * Scans the page for amounts to annotate, per DISENO.md section 5.4:
  * processed in batches via `processInBatches` instead of one long
  * synchronous pass, and stops starting new work once `maxAnnotations`
@@ -212,20 +128,11 @@ function handleManualConvertSelection(rate: ExchangeRate): void {
  * the final count can exceed `maxAnnotations` by at most that node's match
  * count -- a deliberate simplification, since the cap exists to avoid
  * hanging on huge listings, not to be exact to the item.
- *
- * Nodes where `detect()` found nothing are also checked against saved
- * `InclusionRule`s (DISENO.md section 15.4), but only when the site has any
- * saved: that keeps the cost at zero for sites that never used manual
- * conversion. A matching node gets a synthetic high-confidence candidate
- * from the same lenient number extraction the manual conversion uses, and
- * from there follows the exact same path as any other candidate, including
- * the suppression filter.
  */
 function runScan(
   rate: ExchangeRate,
   minConfidence: Confidence,
   rules: Array<SuppressionRule>,
-  inclusionRules: Array<InclusionRule>,
   showSuppressed: boolean,
   maxAnnotations: number,
 ): Promise<ScanSummary> {
@@ -239,7 +146,6 @@ function runScan(
     suppressed: 0,
   };
   const matchedRuleIds = new Set<string>();
-  const matchedInclusionRuleIds = new Set<string>();
   let wrapCount = 0;
   const formatAmount = (amount: DetectedAmount): string =>
     formatUsd(convertToUsd(amount.valueArs, rate));
@@ -250,39 +156,15 @@ function runScan(
       const container = textNode.parentElement;
       if (!container) return;
 
-      let candidates = detect(textNode.textContent ?? '', context).filter(
+      const candidates = detect(textNode.textContent ?? '', context).filter(
         (amount) => meetsMinConfidence(amount.confidence, minConfidence),
       );
 
-      if (candidates.length === 0 && inclusionRules.length === 0) return;
+      if (candidates.length === 0) return;
 
-      // Every candidate (detected or inclusion-matched) in this text node
-      // shares the same container, so the signature is only computed once
-      // per node, not once per match.
+      // Every candidate in this text node shares the same container, so the
+      // signature is only computed once per node, not once per match.
       const { signature, signatureGroup } = computeSignature(container);
-
-      if (candidates.length === 0) {
-        const matchingInclusionRules = inclusionRules.filter((rule) =>
-          matchesInclusion(rule, { signatureGroup }),
-        );
-        if (matchingInclusionRules.length === 0) return;
-
-        const found = findNumberNearOffset(textNode.textContent ?? '', 0);
-        if (!found) return;
-
-        for (const rule of matchingInclusionRules)
-          matchedInclusionRuleIds.add(rule.id);
-
-        candidates = [
-          {
-            rawText: found.rawText,
-            startIndex: found.start,
-            endIndex: found.end,
-            valueArs: parseAmount(found.rawText).value,
-            confidence: 'high',
-          },
-        ];
-      }
 
       const kept: Array<DetectedAmount> = [];
       const suppressed: Array<SuppressedAmount> = [];
@@ -343,13 +225,6 @@ function runScan(
         ruleIds: [...matchedRuleIds],
       } satisfies Message);
 
-    if (matchedInclusionRuleIds.size > 0)
-      chrome.runtime.sendMessage({
-        type: 'INCLUSION_TOUCH',
-        hostname,
-        ruleIds: [...matchedInclusionRuleIds],
-      } satisfies Message);
-
     return summary;
   });
 }
@@ -363,7 +238,6 @@ async function runScanGuarded(
   rate: ExchangeRate,
   minConfidence: Confidence,
   rules: Array<SuppressionRule>,
-  inclusionRules: Array<InclusionRule>,
   showSuppressed: boolean,
   maxAnnotations: number,
 ): Promise<ScanSummary> {
@@ -372,7 +246,6 @@ async function runScanGuarded(
     rate,
     minConfidence,
     rules,
-    inclusionRules,
     showSuppressed,
     maxAnnotations,
   );
@@ -382,12 +255,11 @@ async function runScanGuarded(
 
 /**
  * Rescans the page in response to a mutation observed after the initial
- * scan. Fetches the suppression and inclusion rules fresh instead of
- * reusing the ones from the original `SCAN_RUN`: a rule added mid-session
- * (via the feedback popover, the "mostrar suprimidos" marker, or the
- * context menu) reverts, converts or learns its target outside of a scan,
- * and the observer would otherwise see that write and re-annotate it with
- * the stale rule lists.
+ * scan. Fetches the suppression rules fresh instead of reusing the ones
+ * from the original `SCAN_RUN`: a rule added mid-session (via the feedback
+ * popover or the "mostrar suprimidos" marker) reverts or converts its
+ * target outside of a scan, and the observer would otherwise see that write
+ * and re-annotate it with a stale rule list.
  */
 async function rescanForObserver(
   rate: ExchangeRate,
@@ -398,24 +270,11 @@ async function rescanForObserver(
 ): Promise<void> {
   activeObserverHandle?.pause();
   try {
-    const [rules, inclusionRules] = await Promise.all([
-      chrome.runtime.sendMessage({
-        type: 'RULES_GET',
-        hostname,
-      } satisfies Message) as Promise<Array<SuppressionRule>>,
-      chrome.runtime.sendMessage({
-        type: 'INCLUSION_GET',
-        hostname,
-      } satisfies Message) as Promise<Array<InclusionRule>>,
-    ]);
-    await runScan(
-      rate,
-      minConfidence,
-      rules,
-      inclusionRules,
-      showSuppressed,
-      maxAnnotations,
-    );
+    const rules = (await chrome.runtime.sendMessage({
+      type: 'RULES_GET',
+      hostname,
+    } satisfies Message)) as Array<SuppressionRule>;
+    await runScan(rate, minConfidence, rules, showSuppressed, maxAnnotations);
   } finally {
     activeObserverHandle?.resume();
   }
@@ -439,7 +298,6 @@ export default defineUnlistedScript(() => {
             message.rate,
             message.minConfidence,
             message.rules,
-            message.inclusionRules,
             message.showSuppressed,
             message.maxAnnotations,
           );
@@ -466,12 +324,6 @@ export default defineUnlistedScript(() => {
         activeObserverHandle?.disconnect();
         activeObserverHandle = undefined;
         revert(document.body);
-        sendResponse();
-        return;
-      }
-
-      if (message.type === 'MANUAL_CONVERT_SELECTION') {
-        handleManualConvertSelection(message.rate);
         sendResponse();
         return;
       }

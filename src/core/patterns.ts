@@ -25,10 +25,9 @@ const AMBIGUOUS_MARKER_REGEX = new RegExp(`^${AMBIGUOUS_MARKER_SOURCE}$`);
 const NUMBER_SOURCE = String.raw`\d+(?:[.,]\d+)*`;
 
 /**
- * Matches a bare number, without requiring a currency marker. Used for
- * manual conversions and inclusion rules (DISENO.md section 15), where the
- * user (or a learned rule) has already confirmed the amount is a price;
- * `TOKEN_PATTERN`'s marker requirement does not apply there.
+ * Matches a bare number, without requiring a currency marker. Used where the
+ * user has already confirmed the amount is a price, so `TOKEN_PATTERN`'s
+ * marker requirement does not apply.
  */
 export const NUMBER_PATTERN = new RegExp(NUMBER_SOURCE, 'g');
 

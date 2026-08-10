@@ -6,6 +6,11 @@ El formato sigue los lineamientos de Keep a Changelog y el proyecto adhiere al v
 
 ## [No publicado]
 
+### Eliminado
+
+- La conversión manual desde el menú contextual y la memoria por sitio que hacía que las páginas
+  parecidas convirtieran solas los montos marcados a mano.
+
 ## [0.2.0] - 2026-08-10
 
 ### Agregado
