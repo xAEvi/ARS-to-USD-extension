@@ -30,6 +30,8 @@ const rulesEmptyEl =
   document.querySelector<HTMLParagraphElement>('#rules-empty')!;
 const clearRulesButtonEl =
   document.querySelector<HTMLButtonElement>('#clear-rules')!;
+const showSuppressedEl =
+  document.querySelector<HTMLInputElement>('#show-suppressed')!;
 
 let activeTabId: number | undefined;
 let activeHostname = '';
@@ -170,7 +172,12 @@ async function loadConfiguration(): Promise<void> {
   rateSourceEl.value = config.rateSource;
   manualRateEl.value = String(config.manualRate);
   manualRateFieldEl.hidden = config.rateSource !== 'manual';
+  showSuppressedEl.checked = config.showSuppressed;
 }
+
+showSuppressedEl.addEventListener('change', () => {
+  void setConfiguration({ showSuppressed: showSuppressedEl.checked });
+});
 
 rateSourceEl.addEventListener('change', () => {
   const rateSource = rateSourceEl.value as 'official' | 'manual';
@@ -245,6 +252,7 @@ async function runConversion(): Promise<void> {
       rate: rateResult.rate,
       minConfidence: config.minConfidence,
       rules,
+      showSuppressed: config.showSuppressed,
     };
     const summary = (await chrome.tabs.sendMessage(
       tab.id,

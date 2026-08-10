@@ -13,10 +13,13 @@ import type {
   ExchangeRate,
 } from '../src/core/types';
 import {
+  annotateMixedTextNode,
   annotateTextNode,
+  convertSuppressedWrap,
   injectAnnotationStyles,
   revert,
   revertWrap,
+  type SuppressedAmount,
 } from '../src/page/annotator';
 import { buildPageContext } from '../src/page/context';
 import { showFeedbackPopover } from '../src/page/feedback-popover';
@@ -78,19 +81,53 @@ function handleFeedbackRequested(
   });
 }
 
+/**
+ * Handles a click on a suppressed amount's marker (DISENO.md section 6.7,
+ * "mostrar suprimidos" mode): removes every rule that blocked it, then
+ * converts the wrap in place.
+ */
+function handleUnsuppressRequested(
+  wrap: HTMLElement,
+  amount: SuppressedAmount,
+  rate: ExchangeRate,
+  hostname: string,
+): void {
+  Promise.all(
+    amount.ruleIds.map((ruleId) =>
+      chrome.runtime.sendMessage({
+        type: 'RULES_REMOVE',
+        hostname,
+        ruleId,
+      } satisfies Message),
+    ),
+  ).then(() => {
+    convertSuppressedWrap(
+      wrap,
+      amount,
+      (a) => formatUsd(convertToUsd(a.valueArs, rate)),
+      handleFeedbackRequested,
+    );
+  });
+}
+
 function runScan(
   rate: ExchangeRate,
   minConfidence: Confidence,
   rules: Array<SuppressionRule>,
+  showSuppressed: boolean,
 ): ScanSummary {
   injectAnnotationStyles();
 
   const context = buildPageContext(document);
+  const hostname = normalizeHostname(document.location.hostname);
   const summary: ScanSummary = {
     totalAnnotated: 0,
     byConfidence: { high: 0, medium: 0, low: 0 },
     suppressed: 0,
   };
+  const matchedRuleIds = new Set<string>();
+  const formatAmount = (amount: DetectedAmount): string =>
+    formatUsd(convertToUsd(amount.valueArs, rate));
 
   for (const textNode of collectTextNodes(document.body)) {
     const container = textNode.parentElement;
@@ -107,29 +144,57 @@ function runScan(
     const { signature, signatureGroup } = computeSignature(container);
 
     const kept: Array<DetectedAmount> = [];
+    const suppressed: Array<SuppressedAmount> = [];
+
     for (const amount of candidates) {
-      const isSuppressed = rules.some((rule) =>
+      const matchingRules = rules.filter((rule) =>
         matchesRule(rule, { token: amount.rawText, signature, signatureGroup }),
       );
 
-      if (isSuppressed) summary.suppressed += 1;
-      else kept.push(amount);
+      if (matchingRules.length === 0) {
+        kept.push(amount);
+        continue;
+      }
+
+      summary.suppressed += 1;
+      for (const rule of matchingRules) matchedRuleIds.add(rule.id);
+
+      if (showSuppressed)
+        suppressed.push({
+          ...amount,
+          ruleIds: matchingRules.map((rule) => rule.id),
+          reason: matchingRules[0]!.reason,
+        });
     }
 
-    if (kept.length === 0) continue;
+    if (kept.length === 0 && suppressed.length === 0) continue;
 
-    annotateTextNode(
-      textNode,
-      kept,
-      (amount) => formatUsd(convertToUsd(amount.valueArs, rate)),
-      handleFeedbackRequested,
-    );
+    if (suppressed.length > 0) {
+      annotateMixedTextNode(
+        textNode,
+        kept,
+        suppressed,
+        formatAmount,
+        handleFeedbackRequested,
+        (wrap, amount) =>
+          handleUnsuppressRequested(wrap, amount, rate, hostname),
+      );
+    } else {
+      annotateTextNode(textNode, kept, formatAmount, handleFeedbackRequested);
+    }
 
     for (const amount of kept) {
       summary.totalAnnotated += 1;
       summary.byConfidence[amount.confidence] += 1;
     }
   }
+
+  if (matchedRuleIds.size > 0)
+    chrome.runtime.sendMessage({
+      type: 'RULES_TOUCH',
+      hostname,
+      ruleIds: [...matchedRuleIds],
+    } satisfies Message);
 
   return summary;
 }
@@ -148,7 +213,12 @@ export default defineUnlistedScript(() => {
     (message: Message, _sender, sendResponse) => {
       if (message.type === 'SCAN_RUN') {
         sendResponse(
-          runScan(message.rate, message.minConfidence, message.rules),
+          runScan(
+            message.rate,
+            message.minConfidence,
+            message.rules,
+            message.showSuppressed,
+          ),
         );
         return;
       }

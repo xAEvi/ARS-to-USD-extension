@@ -21,3 +21,5 @@ El formato sigue los lineamientos de Keep a Changelog y el proyecto adhiere al v
   visitas futuras.
 - El popup muestra el listado de reglas de falsas alarmas guardadas para el sitio activo, con su
   motivo y alcance, y permite quitar una regla puntual o limpiar todas las del sitio.
+- Modo "mostrar suprimidos": en vez de ocultar los montos bloqueados por una regla, los marca con
+  un indicador discreto que, al hacer click, elimina la regla y convierte el monto en el acto.

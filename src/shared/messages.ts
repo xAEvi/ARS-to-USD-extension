@@ -27,5 +27,6 @@ export type Message =
       rate: ExchangeRate;
       minConfidence: Confidence;
       rules: Array<SuppressionRule>;
+      showSuppressed: boolean;
     }
   | { type: 'SCAN_REVERT' };

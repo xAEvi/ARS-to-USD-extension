@@ -3,10 +3,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { detect } from '../../src/core/detector';
 import type { DetectedAmount, PageContext } from '../../src/core/types';
 import {
+  annotateMixedTextNode,
   annotateTextNode,
+  convertSuppressedWrap,
   injectAnnotationStyles,
   revert,
   revertWrap,
+  type SuppressedAmount,
 } from '../../src/page/annotator';
 import { collectTextNodes } from '../../src/page/walker';
 
@@ -168,6 +171,128 @@ describe('walker and annotator combined idempotency', () => {
     const secondScanNodes = collectTextNodes(paragraph);
 
     expect(secondScanNodes).toHaveLength(0);
+  });
+});
+
+function suppress(amount: DetectedAmount, overrides = {}): SuppressedAmount {
+  return {
+    ...amount,
+    ruleIds: ['example.com:location:.price'],
+    reason: 'not-a-price',
+    ...overrides,
+  };
+}
+
+describe('annotateMixedTextNode', () => {
+  it('renders a suppressed-only match with a marker instead of a usd span', () => {
+    document.body.innerHTML = '<p>Precio: $1.500</p>';
+    const paragraph = document.querySelector('p')!;
+    const [textNode] = collectTextNodes(paragraph);
+    const matches = detect(textNode!.textContent!, context());
+
+    annotateMixedTextNode(textNode!, [], [suppress(matches[0]!)], formatAmount);
+
+    const wrap = paragraph.querySelector('[data-aru-wrap]')!;
+    expect(wrap.getAttribute('data-aru-original')).toBe('$1.500');
+    expect(wrap.hasAttribute('data-aru-suppressed')).toBe(true);
+    expect(wrap.getAttribute('data-aru-suppression-reason')).toBe(
+      'not-a-price',
+    );
+    expect(wrap.querySelector('[data-aru-usd]')).toBeNull();
+    expect(wrap.querySelector('[data-aru-suppressed-marker]')).not.toBeNull();
+  });
+
+  it('mixes a converted and a suppressed match in the same text node', () => {
+    document.body.innerHTML = '<p>Antes $2.000, ahora $1.500.</p>';
+    const paragraph = document.querySelector('p')!;
+    const [textNode] = collectTextNodes(paragraph);
+    const matches = detect(textNode!.textContent!, context());
+
+    annotateMixedTextNode(
+      textNode!,
+      [matches[0]!],
+      [suppress(matches[1]!)],
+      formatAmount,
+    );
+
+    const wraps = paragraph.querySelectorAll('[data-aru-wrap]');
+    expect(wraps).toHaveLength(2);
+    expect(wraps[0]!.querySelector('[data-aru-usd]')).not.toBeNull();
+    expect(wraps[0]!.hasAttribute('data-aru-suppressed')).toBe(false);
+    expect(wraps[1]!.hasAttribute('data-aru-suppressed')).toBe(true);
+    expect(wraps[1]!.querySelector('[data-aru-usd]')).toBeNull();
+    expect(paragraph.textContent).toBe(
+      'Antes $2.000 (USD 2.00), ahora $1.500⊘.',
+    );
+  });
+
+  it('calls onUnsuppressRequested with preventDefault/stopPropagation applied when the marker is clicked', () => {
+    document.body.innerHTML = '<a href="/product"><p>Precio: $1.500</p></a>';
+    const paragraph = document.querySelector('p')!;
+    const link = document.querySelector('a')!;
+    const [textNode] = collectTextNodes(paragraph);
+    const matches = detect(textNode!.textContent!, context());
+    const onUnsuppressRequested = vi.fn();
+    const entry = suppress(matches[0]!);
+
+    annotateMixedTextNode(
+      textNode!,
+      [],
+      [entry],
+      formatAmount,
+      undefined,
+      onUnsuppressRequested,
+    );
+
+    const wrap = paragraph.querySelector('[data-aru-wrap]')!;
+    const marker = wrap.querySelector<HTMLElement>(
+      '[data-aru-suppressed-marker]',
+    )!;
+    const navigationListener = vi.fn();
+    link.addEventListener('click', navigationListener);
+
+    marker.click();
+
+    expect(onUnsuppressRequested).toHaveBeenCalledWith(wrap, entry);
+    expect(navigationListener).not.toHaveBeenCalled();
+  });
+
+  it('does not attach a click listener when onUnsuppressRequested is not provided', () => {
+    document.body.innerHTML = '<p>Precio: $1.500</p>';
+    const paragraph = document.querySelector('p')!;
+    const [textNode] = collectTextNodes(paragraph);
+    const matches = detect(textNode!.textContent!, context());
+
+    annotateMixedTextNode(textNode!, [], [suppress(matches[0]!)], formatAmount);
+
+    const marker = paragraph.querySelector<HTMLElement>(
+      '[data-aru-suppressed-marker]',
+    )!;
+    expect(() => marker.click()).not.toThrow();
+  });
+});
+
+describe('convertSuppressedWrap', () => {
+  it('turns a suppressed wrap into a converted one in place', () => {
+    document.body.innerHTML = '<p>Precio: $1.500</p>';
+    const paragraph = document.querySelector('p')!;
+    const [textNode] = collectTextNodes(paragraph);
+    const matches = detect(textNode!.textContent!, context());
+    const onFeedbackRequested = vi.fn();
+
+    annotateMixedTextNode(textNode!, [], [suppress(matches[0]!)], formatAmount);
+    const wrap = paragraph.querySelector<HTMLElement>('[data-aru-wrap]')!;
+
+    convertSuppressedWrap(wrap, matches[0]!, formatAmount, onFeedbackRequested);
+
+    expect(wrap.hasAttribute('data-aru-suppressed')).toBe(false);
+    expect(wrap.hasAttribute('data-aru-suppression-reason')).toBe(false);
+    expect(wrap.querySelector('[data-aru-suppressed-marker]')).toBeNull();
+    const usdSpan = wrap.querySelector<HTMLElement>('[data-aru-usd]')!;
+    expect(usdSpan.textContent).toBe(' (USD 1.50)');
+
+    usdSpan.click();
+    expect(onFeedbackRequested).toHaveBeenCalledWith(wrap, matches[0]);
   });
 });
 

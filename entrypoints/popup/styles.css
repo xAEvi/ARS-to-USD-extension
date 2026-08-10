@@ -64,6 +64,18 @@ input[type='number'] {
   margin: 4px 0 0;
 }
 
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #333;
+}
+
+.checkbox-label input {
+  margin: 0;
+}
+
 #actions {
   display: flex;
   gap: 8px;

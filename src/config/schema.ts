@@ -23,4 +23,7 @@ export type ArsToUsdConfiguration = {
 
   /** Maximum number of suppression rules kept per hostname before LRU pruning. */
   maxRulesPerHost: number;
+
+  /** Whether suppressed amounts are rendered with a marker so they can be unmarked in place. */
+  showSuppressed: boolean;
 };
