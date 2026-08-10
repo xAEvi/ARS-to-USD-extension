@@ -154,8 +154,10 @@ Preguntas abiertas sobre el panel:
 | Manifiesto | Se cae el permiso `contextMenus`. |
 | `tests/` | Se eliminan los de supresión, inclusión y detector. Los de parseo, conversión, formato y cotización quedan tal cual. Se suma la tabla de casos de `readSelection`. |
 
-El corpus de fixtures del detector se conserva parcialmente: los strings reales de sitios argentinos
-siguen sirviendo como casos de parseo numérico, aunque su clasificación de moneda ya no aplique.
+El corpus de fixtures del detector se borra junto con el detector, porque estaba tipado contra
+`PageContext` y `DetectedAmount`. Los strings reales de sitios argentinos siguen sirviendo como
+casos de parseo numérico y de `readSelection`, y se recuperan con
+`git show b183dec:tests/fixtures/detection-corpus.ts` cuando se escriban los tests de la fase 2.
 
 ## 10. Plan de trabajo
 

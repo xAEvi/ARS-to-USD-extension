@@ -1,4 +1,4 @@
-import type { Confidence, RateSide } from '../core/types';
+import type { RateSide } from '../core/types';
 
 /**
  * User configurable behavior of the extension. Only the fields consumed so
@@ -17,19 +17,4 @@ export type ArsToUsdConfiguration = {
 
   /** Cache lifetime for the official rate, in milliseconds. */
   rateTtlMs: number;
-
-  /** Minimum confidence level required to annotate a detected amount. */
-  minConfidence: Confidence;
-
-  /** Maximum number of suppression rules kept per hostname before LRU pruning. */
-  maxRulesPerHost: number;
-
-  /** Whether suppressed amounts are rendered with a marker so they can be unmarked in place. */
-  showSuppressed: boolean;
-
-  /** Whether the mutation observer stays active after the initial scan. */
-  watchMutations: boolean;
-
-  /** Maximum number of annotations produced in a single page. */
-  maxAnnotations: number;
 };

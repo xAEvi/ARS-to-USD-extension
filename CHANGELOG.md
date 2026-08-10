@@ -10,6 +10,13 @@ El formato sigue los lineamientos de Keep a Changelog y el proyecto adhiere al v
 
 - La conversión manual desde el menú contextual y la memoria por sitio que hacía que las páginas
   parecidas convirtieran solas los montos marcados a mano.
+- La detección automática de precios. El botón "Convertir" ya no recorre la página ni anexa el
+  equivalente en dólares, y con él se van el botón "Revertir", el resumen del escaneo y la
+  conversión de los precios que aparecen sin recargar la página.
+- El marcado de falsas alarmas, el listado de reglas guardadas por sitio y el modo "mostrar
+  suprimidos". Sin detección automática no hay nada que corregir.
+- Las opciones de configuración que solo servían al escaneo: confianza mínima, tope de anotaciones
+  por página, tope de reglas por sitio y seguimiento de cambios en la página.
 
 ## [0.2.0] - 2026-08-10
 
