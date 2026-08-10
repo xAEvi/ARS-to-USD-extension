@@ -2,6 +2,27 @@ import { type NumberFormat, parseAmount } from './number-parser';
 import { classifyMarker, type MarkerKind, TOKEN_PATTERN } from './patterns';
 import type { Confidence, DetectedAmount, PageContext } from './types';
 
+const CONFIDENCE_RANK: Record<Confidence, number> = {
+  low: 0,
+  medium: 1,
+  high: 2,
+};
+
+/**
+ * Whether a detected amount's confidence meets a minimum threshold, per
+ * DISENO.md section 3.4 ("El umbral mínimo para convertir es configurable").
+ *
+ * @param {Confidence} confidence The confidence of a detected amount.
+ * @param {Confidence} minConfidence The configured minimum threshold.
+ * @returns {boolean} Whether the amount meets the threshold.
+ */
+export function meetsMinConfidence(
+  confidence: Confidence,
+  minConfidence: Confidence,
+): boolean {
+  return CONFIDENCE_RANK[confidence] >= CONFIDENCE_RANK[minConfidence];
+}
+
 /**
  * Scores the confidence that a matched token is genuinely expressed in
  * Argentine pesos, per DISENO.md section 3.4. Returns `null` when the token
