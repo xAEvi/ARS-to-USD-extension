@@ -1,9 +1,9 @@
-import type { RateSide } from '../core/types';
+import type { Confidence, RateSide } from '../core/types';
 
 /**
- * User configurable behavior of the extension. Only the fields consumed by
- * the rate service exist so far; the rest of DISENO.md section 8 is added
- * incrementally as later phases need it.
+ * User configurable behavior of the extension. Only the fields consumed so
+ * far exist; the rest of DISENO.md section 8 is added incrementally as
+ * later phases need it.
  */
 export type ArsToUsdConfiguration = {
   /** Source used to obtain the exchange rate. */
@@ -17,4 +17,7 @@ export type ArsToUsdConfiguration = {
 
   /** Cache lifetime for the official rate, in milliseconds. */
   rateTtlMs: number;
+
+  /** Minimum confidence level required to annotate a detected amount. */
+  minConfidence: Confidence;
 };

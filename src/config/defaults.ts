@@ -15,4 +15,5 @@ export const DEFAULT_CONFIGURATION: ArsToUsdConfiguration = {
   manualRate: 1000,
   rateSide: 'venta',
   rateTtlMs: 10 * 60 * 1000,
+  minConfidence: 'medium',
 };
