@@ -34,6 +34,17 @@
       </section>
 
       <p id="scan-result" aria-live="polite"></p>
+
+      <section id="suppression-rules">
+        <div class="rules-header">
+          <h2>Reglas de este sitio</h2>
+          <button id="clear-rules" type="button" disabled>
+            Limpiar reglas
+          </button>
+        </div>
+        <p id="rules-empty">No hay reglas guardadas para este sitio.</p>
+        <ul id="rules-list"></ul>
+      </section>
     </main>
 
     <script type="module" src="./main.ts"></script>

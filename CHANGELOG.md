@@ -19,3 +19,5 @@ El formato sigue los lineamientos de Keep a Changelog y el proyecto adhiere al v
   precio" o "No está en pesos", con la opción de aplicar la corrección a todos los casos similares
   de la página. La marca persiste por sitio y evita que ese mismo monto se vuelva a convertir en
   visitas futuras.
+- El popup muestra el listado de reglas de falsas alarmas guardadas para el sitio activo, con su
+  motivo y alcance, y permite quitar una regla puntual o limpiar todas las del sitio.

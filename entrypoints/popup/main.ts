@@ -5,7 +5,9 @@ import {
 import { getConfiguration, setConfiguration } from '../../src/config/store';
 import {
   normalizeHostname,
+  type SuppressionReason,
   type SuppressionRule,
+  type SuppressionScope,
 } from '../../src/core/suppression';
 import type { RateProvider } from '../../src/core/types';
 import type { Message, ScanSummary } from '../../src/shared/messages';
@@ -23,14 +25,108 @@ const convertButtonEl = document.querySelector<HTMLButtonElement>('#convert')!;
 const revertButtonEl = document.querySelector<HTMLButtonElement>('#revert')!;
 const scanResultEl =
   document.querySelector<HTMLParagraphElement>('#scan-result')!;
+const rulesListEl = document.querySelector<HTMLUListElement>('#rules-list')!;
+const rulesEmptyEl =
+  document.querySelector<HTMLParagraphElement>('#rules-empty')!;
+const clearRulesButtonEl =
+  document.querySelector<HTMLButtonElement>('#clear-rules')!;
 
 let activeTabId: number | undefined;
+let activeHostname = '';
 
 const PROVIDER_LABELS: Record<RateProvider, string> = {
   dolarapi: 'dolarapi.com',
   bluelytics: 'bluelytics',
   manual: 'manual',
 };
+
+const REASON_LABELS: Record<SuppressionReason, string> = {
+  'not-a-price': 'No es un precio',
+  'not-ars': 'No está en pesos',
+};
+
+const SCOPE_LABELS: Record<SuppressionScope, string> = {
+  token: 'texto exacto',
+  location: 'esta ubicación',
+  'location-group': 'ubicaciones similares',
+};
+
+/**
+ * Extracts and normalizes the hostname from a tab URL. Pure so it can be
+ * reused both at popup load, to resolve the current site's suppression
+ * rules, and inside `runConversion`, without a second `chrome.tabs.query`.
+ *
+ * @param {string} [url] The tab URL, if available.
+ * @returns {string} The normalized hostname, or an empty string when there is none.
+ */
+function hostnameFromTabUrl(url?: string): string {
+  return url ? normalizeHostname(new URL(url).hostname) : '';
+}
+
+function renderRules(rules: Array<SuppressionRule>): void {
+  rulesListEl.replaceChildren();
+  rulesEmptyEl.hidden = rules.length > 0;
+  clearRulesButtonEl.disabled = rules.length === 0;
+
+  for (const rule of rules) {
+    const item = document.createElement('li');
+
+    const label = document.createElement('span');
+    label.textContent = `${REASON_LABELS[rule.reason]} (${SCOPE_LABELS[rule.scope]})`;
+    item.appendChild(label);
+
+    const removeButton = document.createElement('button');
+    removeButton.type = 'button';
+    removeButton.textContent = 'Quitar';
+    removeButton.addEventListener('click', () => {
+      void removeRuleAndReload(rule.id);
+    });
+    item.appendChild(removeButton);
+
+    rulesListEl.appendChild(item);
+  }
+}
+
+async function loadRules(): Promise<void> {
+  if (!activeHostname) {
+    renderRules([]);
+    return;
+  }
+
+  const rules = (await chrome.runtime.sendMessage({
+    type: 'RULES_GET',
+    hostname: activeHostname,
+  } satisfies Message)) as Array<SuppressionRule>;
+  renderRules(rules);
+}
+
+async function removeRuleAndReload(ruleId: string): Promise<void> {
+  await chrome.runtime.sendMessage({
+    type: 'RULES_REMOVE',
+    hostname: activeHostname,
+    ruleId,
+  } satisfies Message);
+  await loadRules();
+}
+
+clearRulesButtonEl.addEventListener('click', () => {
+  void (async () => {
+    await chrome.runtime.sendMessage({
+      type: 'RULES_CLEAR',
+      hostname: activeHostname,
+    } satisfies Message);
+    await loadRules();
+  })();
+});
+
+async function initializeRules(): Promise<void> {
+  const [tab] = await chrome.tabs.query({
+    active: true,
+    currentWindow: true,
+  });
+  activeHostname = hostnameFromTabUrl(tab?.url);
+  await loadRules();
+}
 
 function formatAge(fetchedAt: number): string {
   const minutes = Math.round((Date.now() - fetchedAt) / 60_000);
@@ -136,9 +232,7 @@ async function runConversion(): Promise<void> {
     });
 
     const config = await getConfiguration();
-    const hostname = tab.url
-      ? normalizeHostname(new URL(tab.url).hostname)
-      : '';
+    const hostname = hostnameFromTabUrl(tab.url);
     const rules = hostname
       ? ((await chrome.runtime.sendMessage({
           type: 'RULES_GET',
@@ -180,3 +274,4 @@ revertButtonEl.addEventListener('click', () => {
 
 void loadConfiguration();
 void refreshRateStatus();
+void initializeRules();
