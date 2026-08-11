@@ -50,7 +50,7 @@ Implica ademas un cambio de forma en el nucleo: `MONETARY_SELECTION_PATTERN` nec
 | --- | --- | --- | --- |
 | `k`, `K` | 1.000 | `100k` | 100.000 |
 | `k` con decimal | 1.000 | `22,5k` / `22.5k` | 22.500 |
-| `M` | 1.000.000 | `1M` | 1.000.000 |
+| `M`, `m` | 1.000.000 | `1M` / `20m` | 1.000.000 / 20.000.000 |
 | `MM` | 1.000.000 | `1MM` | 1.000.000 |
 
 Notas:
@@ -59,8 +59,11 @@ Notas:
   contextos de finanzas y no cuesta nada soportarlo.
 - El decimal con `k` es el caso que mas se usa en la practica (`22,5k`, `1,5k`). Hay que aceptar
   tanto la coma es-AR como el punto en-US, porque en chats la gente escribe las dos.
-- **`m` minuscula es ambigua y conviene rechazarla.** Puede leerse como "mil" o como "millon"
-  segun quien escriba, y no hay forma de desambiguar. `1m` no deberia convertirse.
+- **`m` minuscula se trata igual que `M`: significa millon.** Decision explicita del usuario, que
+  reemplaza lo que este documento decia antes (rechazarla por ambiguedad con "mil"). En el uso real
+  que motiva este cambio, `m` no se usa para abreviar "mil": `1000` no se escribe `1m`, se escribe
+  `1k`. El unico multiplicador que usa `m` es millon, asi que no hay ambiguedad practica que
+  resolver, aunque sea ambigua en teoria contra otros idiomas o convenciones.
 
 ### 3.2. Palabras de escala (prioridad alta)
 
@@ -119,8 +122,8 @@ Cada una de estas es una forma de producir un numero equivocado con apariencia d
 | Colision | Riesgo | Mitigacion propuesta |
 | --- | --- | --- |
 | `k` seguido de otra letra: `22.5kg`, `100kb`, `50km`, `3kW` | Alto. Multiplicaria por mil un peso, un tamano de archivo o una distancia | Exigir que despues del sufijo no haya ninguna letra. `22.5kg` debe seguir rechazandose |
-| `M` seguido de letra: `1Mb`, `2MW` | Alto. Mismo caso | Misma regla |
-| `m` minuscula sola | Alto. Ambigua entre mil y millon | Rechazar. No soportarla |
+| `M`/`m` seguido de letra: `1Mb`, `2MW`, `5m2` | Alto. Mismo caso | Misma regla, aplicada tambien a `m` minuscula |
+| `m` como unidad: `5m` (metros), `10m` (minutos) | Medio. `m` sola es una unidad de uso extendido fuera de lo monetario | Aceptado por decision explicita del usuario: `m` sola significa millon. El filtro de forma ya exige que la seleccion completa sea numero-mas-sufijo, asi que el riesgo se limita a selecciones que un usuario hizo a proposito |
 | `verde`, `verdes` (`500 verdes`) | Alto. Significa **dolares**, no pesos. Convertirlo da un numero sin sentido | No incluirlo como multiplicador. Que caiga en el rechazo general |
 | `palo verde`, `luca verde` | Alto. Millon y mil **de dolares** | Idem: rechazar si aparece `verde` |
 | `palo` fuera de contexto monetario ("2 palos de escoba") | Bajo. La seleccion explicita lo vuelve improbable | Aceptado, criterio del usuario (`DISENO.md` seccion 2.2) |
@@ -164,7 +167,7 @@ y riesgo:
 | Orden | Contenido | Motivo |
 | --- | --- | --- |
 | 1 | Sufijo `.-` / `,-` y separador de miles por espacio | Muy comun, no multiplica nada, riesgo casi nulo |
-| 2 | `k`, `K`, `M`, `MM` con la guardia de "ninguna letra despues" | Alto uso, riesgo controlado por una sola regla |
+| 2 | `k`, `K`, `M`, `m`, `MM` con la guardia de "ninguna letra despues" | Alto uso, riesgo controlado por una sola regla |
 | 3 | `mil`, `millon`, `millones` | Explicito, sin colisiones |
 | 4 | `luca(s)`, `palo(s)`, `mango(s)` | Vigentes en uso real, colisiones de bajo riesgo |
 | 5 | `gamba(s)` | Practicamente en desuso |
@@ -181,7 +184,8 @@ Que se convierten, con su valor esperado:
 22.5k           -> 22500         100 mil        -> 100000
 1M              -> 1000000       2 millones     -> 2000000
 1MM             -> 1000000       1 millón       -> 1000000
-$1.500.-        -> 1500          100 000        -> 100000
+20m             -> 20000000      100 000        -> 100000
+1m              -> 1000000       $1.500.-       -> 1500
 ```
 
 Que se siguen rechazando, y por que:
@@ -191,7 +195,7 @@ Que se siguen rechazando, y por que:
 50 km           unidad de distancia
 100kb           unidad de informacion
 3kW             unidad de potencia
-1m              minuscula ambigua entre mil y millon
+5m2             unidad de superficie, letra despues del sufijo
 500 verdes      son dolares, no pesos
 2 palos verdes  millones de dolares
 medio palo      fraccion de escala, fuera de alcance
