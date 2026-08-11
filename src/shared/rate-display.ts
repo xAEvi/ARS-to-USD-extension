@@ -1,10 +1,22 @@
-import type { RateProvider } from '../core/types';
+import type { RateHouse, RateProvider } from '../core/types';
 
 /** Human readable label for each rate provider, shared by the popup and the floating panel. */
 export const RATE_PROVIDER_LABELS: Record<RateProvider, string> = {
   dolarapi: 'dolarapi.com',
   bluelytics: 'bluelytics',
   manual: 'manual',
+};
+
+/** Human readable label for each dolarapi.com house, and for the manual rate. */
+export const RATE_SOURCE_LABELS: Record<RateHouse | 'manual', string> = {
+  oficial: 'Dólar oficial',
+  blue: 'Dólar blue',
+  bolsa: 'Dólar bolsa (MEP)',
+  contadoconliqui: 'Dólar contado con liqui (CCL)',
+  tarjeta: 'Dólar tarjeta',
+  mayorista: 'Dólar mayorista',
+  cripto: 'Dólar cripto',
+  manual: 'Cotización manual',
 };
 
 /**

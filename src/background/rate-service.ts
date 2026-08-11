@@ -1,12 +1,15 @@
-import { BLUELYTICS_URL, DOLARAPI_URL } from '../config/defaults';
+import { BLUELYTICS_URL, DOLARAPI_BASE_URL } from '../config/defaults';
 import type { ArsToUsdConfiguration } from '../config/schema';
-import type { ExchangeRate, RateSide } from '../core/types';
+import type { ExchangeRate, RateHouse, RateSide } from '../core/types';
 import { getStorageValue, setStorageValue } from '../shared/storage';
 
-const RATE_CACHE_KEY = 'rate-cache';
+const RATE_CACHE_KEY_PREFIX = 'rate-cache';
 
 /** Manual rates above this are rejected as likely typos; no real quote gets close. */
 const MAX_MANUAL_RATE = 1_000_000;
+
+/** The two houses bluelytics also reports, and the only ones it can stand in for. */
+const BLUELYTICS_HOUSES = new Set<RateHouse>(['oficial', 'blue']);
 
 type RateConfig = Pick<
   ArsToUsdConfiguration,
@@ -80,8 +83,8 @@ function manualRateResult(manualRate: number): RateResult {
   return { status: 'ok', rate: manualExchangeRate(manualRate) };
 }
 
-async function fetchFromDolarApi(): Promise<CachedQuote> {
-  const response = await fetch(DOLARAPI_URL);
+async function fetchFromDolarApi(house: RateHouse): Promise<CachedQuote> {
+  const response = await fetch(`${DOLARAPI_BASE_URL}/${house}`);
   if (!response.ok)
     throw new Error(`dolarapi responded with status ${response.status}`);
 
@@ -102,29 +105,36 @@ async function fetchFromDolarApi(): Promise<CachedQuote> {
 
 // Bluelytics also reports both sides of the quote, so it is mapped the same
 // way as the primary source instead of only ever serving `venta`.
-async function fetchFromBluelytics(): Promise<CachedQuote> {
+async function fetchFromBluelytics(
+  house: 'oficial' | 'blue',
+): Promise<CachedQuote> {
   const response = await fetch(BLUELYTICS_URL);
   if (!response.ok)
     throw new Error(`bluelytics responded with status ${response.status}`);
 
-  const body = (await response.json()) as {
-    oficial: { value_buy: number; value_sell: number; date?: string };
-  };
+  const body = (await response.json()) as Record<
+    'oficial' | 'blue',
+    { value_buy: number; value_sell: number; date?: string }
+  >;
+  const quote = body[house];
 
   return {
-    compra: body.oficial.value_buy,
-    venta: body.oficial.value_sell,
+    compra: quote.value_buy,
+    venta: quote.value_sell,
     provider: 'bluelytics',
     fetchedAt: Date.now(),
-    quotedAt: body.oficial.date ?? new Date().toISOString(),
+    quotedAt: quote.date ?? new Date().toISOString(),
   };
 }
 
-async function fetchQuote(): Promise<CachedQuote> {
+async function fetchQuote(house: RateHouse): Promise<CachedQuote> {
   try {
-    return await fetchFromDolarApi();
-  } catch {
-    return await fetchFromBluelytics();
+    return await fetchFromDolarApi(house);
+  } catch (error) {
+    // Bluelytics only reports oficial and blue; every other house has no
+    // fallback and the original error propagates to the cache/error path.
+    if (!BLUELYTICS_HOUSES.has(house)) throw error;
+    return await fetchFromBluelytics(house as 'oficial' | 'blue');
   }
 }
 
@@ -140,7 +150,8 @@ export async function getRate(config: RateConfig): Promise<RateResult> {
   if (config.rateSource === 'manual')
     return manualRateResult(config.manualRate);
 
-  const cached = await getStorageValue<CachedQuote>(RATE_CACHE_KEY);
+  const cacheKey = `${RATE_CACHE_KEY_PREFIX}:${config.rateSource}`;
+  const cached = await getStorageValue<CachedQuote>(cacheKey);
 
   if (cached && Date.now() - cached.fetchedAt < config.rateTtlMs)
     return {
@@ -152,10 +163,10 @@ export async function getRate(config: RateConfig): Promise<RateResult> {
 }
 
 /**
- * Forces a fetch of the official rate, ignoring cache freshness. Falls back
- * to the primary source's counterpart on failure, then to an expired cached
- * value marked as stale, and only reports an error when neither is
- * available. No value is ever invented.
+ * Forces a fetch of the selected house's rate, ignoring cache freshness.
+ * Falls back to bluelytics on failure when the house is `oficial` or
+ * `blue`, then to an expired cached value marked as stale, and only reports
+ * an error when neither is available. No value is ever invented.
  *
  * @param {RateConfig} config The rate-related configuration fields.
  * @returns {Promise<RateResult>} The resolved rate, or an error if none is available.
@@ -164,15 +175,18 @@ export async function refreshRate(config: RateConfig): Promise<RateResult> {
   if (config.rateSource === 'manual')
     return manualRateResult(config.manualRate);
 
+  const house = config.rateSource;
+  const cacheKey = `${RATE_CACHE_KEY_PREFIX}:${house}`;
+
   try {
-    const quote = await fetchQuote();
-    await setStorageValue(RATE_CACHE_KEY, quote);
+    const quote = await fetchQuote(house);
+    await setStorageValue(cacheKey, quote);
     return {
       status: 'ok',
       rate: toExchangeRate(quote, config.rateSide, false),
     };
   } catch (error) {
-    const cached = await getStorageValue<CachedQuote>(RATE_CACHE_KEY);
+    const cached = await getStorageValue<CachedQuote>(cacheKey);
     if (cached)
       return {
         status: 'ok',

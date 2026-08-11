@@ -14,6 +14,11 @@ El formato sigue los lineamientos de Keep a Changelog y el proyecto adhiere al v
   en dólares, la fuente de la cotización usada y su antigüedad, incluido un aviso cuando el dato
   está vencido. Reemplaza al escaneo automático de la página.
 
+### Cambiado
+
+- Además del dólar oficial, el popup permite elegir entre blue, bolsa (MEP), contado con liqui,
+  tarjeta, mayorista y cripto. El popup muestra en todo momento cuál de todas está usando.
+
 ### Eliminado
 
 - La conversión manual desde el menú contextual y la memoria por sitio que hacía que las páginas

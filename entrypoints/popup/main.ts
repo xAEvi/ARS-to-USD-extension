@@ -7,13 +7,16 @@ import {
   type RateResult,
 } from '../../src/background/rate-service';
 import { getConfiguration, setConfiguration } from '../../src/config/store';
+import type { RateHouse } from '../../src/core/types';
 import type { Message } from '../../src/shared/messages';
 import {
   formatRateAge,
   RATE_PROVIDER_LABELS,
+  RATE_SOURCE_LABELS,
 } from '../../src/shared/rate-display';
 
 const activateEl = document.querySelector<HTMLInputElement>('#activate')!;
+const rateHouseEl = document.querySelector<HTMLParagraphElement>('#rate-house')!;
 const rateValueEl =
   document.querySelector<HTMLParagraphElement>('#rate-value')!;
 const rateMetaEl = document.querySelector<HTMLParagraphElement>('#rate-meta')!;
@@ -52,16 +55,22 @@ async function refreshRateStatus(): Promise<void> {
   renderRateResult(await requestRate());
 }
 
+function renderRateHouse(rateSource: RateHouse | 'manual'): void {
+  rateHouseEl.textContent = RATE_SOURCE_LABELS[rateSource];
+}
+
 async function loadConfiguration(): Promise<void> {
   const config = await getConfiguration();
   rateSourceEl.value = config.rateSource;
   manualRateEl.value = String(config.manualRate);
   manualRateFieldEl.hidden = config.rateSource !== 'manual';
+  renderRateHouse(config.rateSource);
 }
 
 rateSourceEl.addEventListener('change', () => {
-  const rateSource = rateSourceEl.value as 'official' | 'manual';
+  const rateSource = rateSourceEl.value as RateHouse | 'manual';
   manualRateFieldEl.hidden = rateSource !== 'manual';
+  renderRateHouse(rateSource);
 
   void (async () => {
     await setConfiguration({ rateSource });

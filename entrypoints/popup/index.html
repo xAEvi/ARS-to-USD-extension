@@ -20,14 +20,21 @@
       </section>
 
       <section id="rate-status" aria-live="polite">
+        <p id="rate-house"></p>
         <p id="rate-value">Cargando cotización...</p>
         <p id="rate-meta"></p>
       </section>
 
       <section id="rate-config">
-        <label for="rate-source">Fuente de la cotización</label>
+        <label for="rate-source">Cotización a usar</label>
         <select id="rate-source">
-          <option value="official">Oficial</option>
+          <option value="oficial">Dólar oficial</option>
+          <option value="blue">Dólar blue</option>
+          <option value="bolsa">Dólar bolsa (MEP)</option>
+          <option value="contadoconliqui">Dólar contado con liqui (CCL)</option>
+          <option value="tarjeta">Dólar tarjeta</option>
+          <option value="mayorista">Dólar mayorista</option>
+          <option value="cripto">Dólar cripto</option>
           <option value="manual">Manual</option>
         </select>
 

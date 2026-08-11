@@ -14,7 +14,7 @@ type RateConfig = Pick<
 
 function config(overrides: Partial<RateConfig> = {}): RateConfig {
   return {
-    rateSource: 'official',
+    rateSource: 'oficial',
     manualRate: 1000,
     rateSide: 'venta',
     rateTtlMs: 10 * 60 * 1000,
@@ -78,6 +78,43 @@ describe('getRate / refreshRate', () => {
       expect(result.rate.value).toBe(1010);
       expect(result.rate.provider).toBe('bluelytics');
     }
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not fall back to bluelytics for a house it does not cover', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(failedResponse(503));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await refreshRate(config({ rateSource: 'tarjeta' }));
+
+    expect(result.status).toBe('error');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('caches each house independently', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          compra: 1000,
+          venta: 1050,
+          fechaActualizacion: '2026-08-10T12:00:00.000Z',
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          compra: 1200,
+          venta: 1260,
+          fechaActualizacion: '2026-08-10T12:00:00.000Z',
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const oficial = await getRate(config({ rateSource: 'oficial' }));
+    const blue = await getRate(config({ rateSource: 'blue' }));
+
+    expect(oficial.status === 'ok' && oficial.rate.value).toBe(1050);
+    expect(blue.status === 'ok' && blue.rate.value).toBe(1260);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 

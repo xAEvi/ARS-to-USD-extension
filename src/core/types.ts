@@ -1,5 +1,18 @@
-/** Side of the official quote used for the conversion. */
+/** Side of the quote used for the conversion. */
 export type RateSide = 'venta' | 'compra' | 'promedio';
+
+/**
+ * Which dolarapi.com "casa" (dollar type) to quote. `contadoconliqui` and
+ * `bolsa` are the API's own slugs for CCL and MEP.
+ */
+export type RateHouse =
+  | 'oficial'
+  | 'blue'
+  | 'bolsa'
+  | 'contadoconliqui'
+  | 'tarjeta'
+  | 'mayorista'
+  | 'cripto';
 
 /** Origin of a resolved exchange rate. */
 export type RateProvider = 'dolarapi' | 'bluelytics' | 'manual';

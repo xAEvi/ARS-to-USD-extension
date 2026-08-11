@@ -1,4 +1,4 @@
-import type { RateSide } from '../core/types';
+import type { RateHouse, RateSide } from '../core/types';
 
 /**
  * User configurable behavior of the extension. Only the fields consumed so
@@ -6,8 +6,8 @@ import type { RateSide } from '../core/types';
  * later phases need it.
  */
 export type ArsToUsdConfiguration = {
-  /** Source used to obtain the exchange rate. */
-  rateSource: 'official' | 'manual';
+  /** Which dollar quote to use: a dolarapi.com house, or the manual rate. */
+  rateSource: RateHouse | 'manual';
 
   /** Manual exchange rate in ARS per USD. Only used when rateSource is manual. */
   manualRate: number;
