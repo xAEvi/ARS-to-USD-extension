@@ -123,14 +123,64 @@ Reglas, todas necesarias para devolver un resultado:
 3. Tiene que matchear un patrón anclado (`^...$`) de número con marcador opcional. El anclaje es lo
    que descarta un monto dentro de una frase: sin él, cualquier texto que contenga un número en
    algún lugar pasaría el filtro.
-4. La cantidad de dígitos del número no puede superar 12. Un número de trece dígitos no suele ser
-   un precio: es más probable que sea un número de tarjeta, un teléfono o un código de seguimiento.
-5. El valor parseado tiene que ser finito y mayor a cero.
+4. La cantidad de dígitos que el usuario escribió no puede superar 12. Un número de trece dígitos
+   no suele ser un precio: es más probable que sea un número de tarjeta, un teléfono o un código de
+   seguimiento. Este límite es sobre lo escrito, antes de aplicar una palabra de escala; ver la
+   sección 3.2 para el límite sobre el valor final.
+5. El valor parseado tiene que ser finito y mayor a cero, y el valor final (después de aplicar una
+   palabra de escala) no puede superar el billón de pesos. Ver sección 3.2.
 
 Cualquier selección que no cumpla todo esto se ignora en silencio: sin panel, sin aviso. El usuario
 estaba subrayando para otra cosa y la extensión no tiene por qué interrumpirlo.
 
-### 3.2. Marcadores de moneda como ruido tolerado
+### 3.2. Escalas: sufijos y palabras que multiplican
+
+Además del número literal, la selección puede llevar una palabra o un sufijo que multiplica el
+valor: `100k`, `2 palos`, `1 millón`. Esto es distinto de los marcadores de moneda de la sección
+3.3, que son ruido descartable. Una palabra de escala cambia el valor, así que reconocerla mal es
+mucho más costoso que ignorar mal un marcador: `2` y `2 palos` difieren en un factor de un millón.
+La consecuencia se acepta explícitamente, en la misma línea que la sección 2.2: un error acá
+produce un número equivocado con la misma apariencia de válido que uno correcto, y no hay forma de
+evitarlo del todo sin volver a necesitar un aparato de inferencia. La mitigación es ser conservador
+con qué se reconoce como escala, no intentar cubrir cada forma posible.
+
+| Forma | Factor | Ejemplo |
+| --- | --- | --- |
+| `k`, `K` | 1.000 | `100k`, `22,5k` |
+| `M`, `m`, `MM` | 1.000.000 | `1M`, `20m`, `1MM` |
+| `mil` | 1.000 | `100 mil` |
+| `millón`, `millones` (con o sin tilde) | 1.000.000 | `1 millón`, `2 millones` |
+| `luca`, `lucas` | 1.000 | `10 lucas` |
+| `palo`, `palos` | 1.000.000 | `2 palos` |
+| `mango`, `mangos` | 1 | `500 mangos` |
+| `gamba`, `gambas` | 100 | `2 gambas` |
+| `melón`, `melones` (con o sin tilde) | 1.000.000 | `2 melones` |
+
+Decisiones puntuales:
+
+- **`m` minúscula significa millón, igual que `M`, no "mil".** En el uso real que motivó esto, "mil"
+  se abrevia `k`, no `m`; el único multiplicador que usa la letra `m` es millón, así que no hay
+  ambigüedad práctica que resolver, aunque `m` sea ambigua en teoría contra otras convenciones.
+- **`verde` (dólares) no es una escala.** `500 verdes` o `2 palos verdes` significan montos en
+  dólares, no en pesos multiplicados. Convertirlos como si fueran pesos da un número sin sentido, y
+  no hay forma de leer la moneda correcta sin volver a inferir contexto. Se dejan fuera a propósito:
+  una selección con `verde` no matchea ninguna de las formas de la tabla y se rechaza como cualquier
+  otra selección sin sentido.
+- **Los sufijos pegados (`k`, `M`, `m`, `MM`) no toleran una letra después.** El anclaje de la
+  sección 3.1 ya lo garantiza: si después del sufijo queda una letra sin consumir (`22.5kg`, `50km`,
+  `100kb`, `3kW`, `5m2`), nada en el patrón puede absorberla y la selección entera se rechaza. No
+  hace falta una regla aparte para esto.
+- **`mango` no multiplica, es sinónimo de "peso" (factor 1).** Se incluye igual porque aparece
+  seguido en texto real ("500 mangos").
+- Fracciones (`medio palo`), números escritos en palabras y rangos quedan fuera de alcance. Ver
+  sección 6 de las decisiones que motivaron este cambio para el detalle de por qué.
+
+El tope de valor final (sección 3.1, regla 5) es un billón de pesos (`10^12`). Existe porque el
+tope de dígitos escritos no alcanza una vez que hay un multiplicador de por medio:
+`999999999999k` tiene 12 dígitos, pasa esa regla, y da un valor en los cuatrillones sin este
+segundo límite.
+
+### 3.3. Marcadores de moneda como ruido tolerado
 
 A diferencia de una versión anterior de este proyecto, los marcadores de moneda (`$`, `ARS`, `AR$`,
 `pesos`, pero también `USD`, `U$S`, `US$`, `dólares`) no se clasifican ni se usan para aceptar o
@@ -138,7 +188,7 @@ rechazar una selección. Son ruido tolerado alrededor del número: `$1.999` y `U
 por igual, porque el usuario los subrayó y no porque el marcador diga algo sobre la moneda real del
 monto.
 
-### 3.3. Parseo del número
+### 3.4. Parseo del número
 
 El formato es-AR usa punto como separador de miles y coma como separador decimal. El caso ambiguo
 es un punto sin coma acompañante.
@@ -155,7 +205,7 @@ La regla 2 es la que resuelve el caso frecuente de `$1.500` en un sitio argentin
 seleccionado viene en formato en-US inequívoco (`1,234.56`), se interpreta igual como el valor que
 representa: la ambigüedad ya no baja ninguna confianza, porque no hay confianza que bajar.
 
-### 3.4. Selección en la página
+### 3.5. Selección en la página
 
 - Se escucha `mouseup` y `keyup`, no `selectionchange`, que dispara en cada píxel de un arrastre.
 - El texto se obtiene con `Range.toString()` y no con el `textContent` del nodo ancla, porque la
@@ -451,7 +501,9 @@ El foco está en el núcleo puro. Los tests de DOM son secundarios.
 
 - `number-parser.test.ts`: tabla de casos de formatos es-AR y en-US, incluidos los ambiguos.
 - `selection.test.ts`: tabla de casos de `readSelection`, con selecciones que deben aceptarse y
-  selecciones que deben rechazarse por cada regla del filtro de la sección 3.1.
+  selecciones que deben rechazarse por cada regla del filtro de la sección 3.1, incluidas las
+  escalas de la sección 3.2 y sus colisiones (`22.5kg` contra `22.5k`, montos en dólares como
+  `500 verdes`, el tope de valor final).
 - `rate-service.test.ts`: caché por casa, fallback a bluelytics solo para oficial y blue, modo
   manual, y el caso de una casa sin fallback que falla directo a caché vencida o error.
 - `disabled-hosts.test.ts` y `hostname.test.ts`: persistencia de la lista de exclusión y
@@ -469,7 +521,8 @@ Fases completas, en orden:
 | 2 | `readSelection` y el patrón anclado de valor monetario, con tabla de casos | Núcleo verificable sin navegador |
 | 3 | Activación por pestaña (superada por la fase 5) | Ciclo de activación manual |
 | 4 | Lectura de la selección en la página y panel flotante | Flujo completo |
-| 5 | Cotizaciones alternativas de dolarapi.com y activación por defecto en todo sitio | Extensión en su forma actual |
+| 5 | Cotizaciones alternativas de dolarapi.com y activación por defecto en todo sitio | Ciclo de cotización y activación en su forma actual |
+| 6 | Montos abreviados y en lunfardo (`100k`, `2 palos`, `1 millón`) | Extensión en su forma actual |
 
 ## 14. Riesgos conocidos
 
@@ -483,3 +536,6 @@ Fases completas, en orden:
 | Cambio o caída de la API de cotización | Fuente de respaldo para oficial y blue, endpoints configurables en build, modo manual siempre disponible |
 | Montos en Shadow DOM cerrado o `iframe` de origen cruzado | Limitación documentada, sin mitigación |
 | Sitios que cancelan o reescriben la selección con sus propios handlers | Se detecta en uso real, sin mitigación previa conocida |
+| Una palabra de escala mal reconocida multiplica el valor por mil o por un millón, con la misma apariencia de válido que un resultado correcto | Lista conservadora de escalas (sección 3.2), tope de valor final, sin mitigación adicional posible sin volver a inferir contexto |
+| `k`/`M`/`m` pegados a una unidad no monetaria (`22.5kg`, `50km`, `5m2`) | El anclaje de la selección exige que no quede ninguna letra sin consumir después del sufijo; la selección entera se rechaza |
+| Un monto en dólares con escala lunfarda (`500 verdes`, `2 palos verdes`) leído como si fuera en pesos | `verde` no está en la lista de escalas reconocidas; la selección se rechaza igual que cualquier forma sin sentido |

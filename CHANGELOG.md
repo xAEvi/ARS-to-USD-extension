@@ -6,6 +6,14 @@ El formato sigue los lineamientos de Keep a Changelog y el proyecto adhiere al v
 
 ## [No publicado]
 
+### Agregado
+
+- Ahora se pueden subrayar montos abreviados o en lunfardo y convertirlos igual: `100k`, `1M`,
+  `20m`, `100 mil`, `2 millones`, `10 lucas`, `2 palos`, `500 mangos`, `2 gambas`, `2 melones`. La
+  extensión multiplica el número por lo que indica la palabra o el sufijo.
+- Se reconoce el punto final de precio (`$1.500.-`) y el separador de miles por espacio
+  (`100 000`), ambos comunes en precios escritos en Argentina.
+
 ## [1.0.0] - 2026-08-11
 
 ### Agregado
