@@ -6,6 +6,8 @@ El formato sigue los lineamientos de Keep a Changelog y el proyecto adhiere al v
 
 ## [No publicado]
 
+## [1.0.1] - 2026-08-11
+
 ### Agregado
 
 - Ahora se pueden subrayar montos abreviados o en lunfardo y convertirlos igual: `100k`, `1M`,

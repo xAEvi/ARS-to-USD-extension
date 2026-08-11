@@ -9,7 +9,7 @@ se muestra en un panel flotante junto a la seleccion.
 
 ## Estado
 
-Version actual: `1.0.0`. Ver `DISENO.md` seccion 13 para el detalle de las fases completas.
+Version actual: `1.0.1`. Ver `DISENO.md` seccion 13 para el detalle de las fases completas.
 
 ## Funcionalidades
 
