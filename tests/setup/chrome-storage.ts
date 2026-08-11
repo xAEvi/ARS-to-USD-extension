@@ -24,11 +24,38 @@ function createFakeStorageArea(data: StorageData) {
 
 const localData: StorageData = {};
 const syncData: StorageData = {};
+const sessionData: StorageData = {};
+
+/** Records of `chrome.action.setBadgeText`/`setBadgeBackgroundColor` calls, for assertions. */
+export const fakeBadgeCalls: Array<{
+  tabId: number;
+  text?: string;
+  color?: string;
+}> = [];
 
 (globalThis as { chrome?: unknown }).chrome = {
   storage: {
     local: createFakeStorageArea(localData),
     sync: createFakeStorageArea(syncData),
+    session: createFakeStorageArea(sessionData),
+  },
+  action: {
+    setBadgeText: async ({ tabId, text }: { tabId: number; text: string }) => {
+      fakeBadgeCalls.push({ tabId, text });
+    },
+    setBadgeBackgroundColor: async ({
+      tabId,
+      color,
+    }: {
+      tabId: number;
+      color: string;
+    }) => {
+      fakeBadgeCalls.push({ tabId, color });
+    },
+  },
+  tabs: {
+    onRemoved: { addListener: () => {} },
+    onUpdated: { addListener: () => {} },
   },
 };
 
@@ -36,4 +63,6 @@ const syncData: StorageData = {};
 export function resetFakeChromeStorage(): void {
   for (const key of Object.keys(localData)) delete localData[key];
   for (const key of Object.keys(syncData)) delete syncData[key];
+  for (const key of Object.keys(sessionData)) delete sessionData[key];
+  fakeBadgeCalls.length = 0;
 }

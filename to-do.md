@@ -89,10 +89,13 @@ El núcleo de dominio queda casi intacto:
 "Con la extensión activa" implica un estado por pestaña que hoy no existe: la v1 inyecta el script,
 escanea y termina.
 
-- [ ] El popup pasa a tener un interruptor de activación en vez del botón "Convertir".
-- [ ] El estado vive por pestaña, en el background, y se refleja en el badge del ícono para que el
-      usuario sepa si está activa sin abrir el popup.
-- [ ] Al activar, se inyecta el content script con `chrome.scripting.executeScript`, igual que hoy.
+- [x] El popup pasa a tener un interruptor de activación en vez del botón "Convertir".
+- [x] El estado vive por pestaña, en `chrome.storage.session`, y se refleja en el badge del ícono
+      para que el usuario sepa si está activa sin abrir el popup. `session` y no `local`: el estado
+      solo debe durar lo que dura la sesión del navegador, igual que `activeTab`.
+- [x] Al activar, se inyecta el content script con `chrome.scripting.executeScript`. El script
+      inyectado por ahora es un stub sin comportamiento (guardia de doble inyección nada más); la
+      fase 4 le suma la lectura de selección y el panel.
 
 Limitación a resolver, no a ignorar. El permiso `activeTab` se otorga por gesto y se revoca al
 navegar. Con solo `activeTab`, la sesión activa muere en cuanto el usuario cambia de página, y hay
@@ -103,6 +106,12 @@ que volver a activar. Sobrevive la navegación de una SPA, no la navegación rea
    implica en la instalación.
 
 Recomiendo empezar por la 1 y medir cuánto molesta en uso real antes de pagar el costo de la 2.
+
+Implementado como la opción 1: `background/active-tabs.ts` limpia el estado de una pestaña
+(`chrome.tabs.onRemoved`) y lo desactiva cuando la pestaña navega a un documento nuevo
+(`chrome.tabs.onUpdated` con `status: 'loading'` y `url` presente en el `changeInfo`, que distingue
+una navegación real de un cambio de URL por `history.pushState` de una SPA: ese último no dispara
+`status: 'loading'` porque no hay carga de documento).
 
 ## 7. Lectura de la selección
 

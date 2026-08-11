@@ -6,6 +6,11 @@ El formato sigue los lineamientos de Keep a Changelog y el proyecto adhiere al v
 
 ## [No publicado]
 
+### Agregado
+
+- El popup tiene un interruptor para activar la extensión en la pestaña actual, con un indicador en
+  el ícono que muestra si está activa sin necesidad de abrirlo.
+
 ### Eliminado
 
 - La conversión manual desde el menú contextual y la memoria por sitio que hacía que las páginas

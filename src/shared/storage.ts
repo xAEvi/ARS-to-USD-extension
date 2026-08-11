@@ -1,5 +1,5 @@
 /** Which `chrome.storage` area to read from or write to. */
-export type StorageArea = 'local' | 'sync';
+export type StorageArea = 'local' | 'sync' | 'session';
 
 /**
  * Reads a single typed value from `chrome.storage`.

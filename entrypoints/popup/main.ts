@@ -1,4 +1,8 @@
 import {
+  isTabActive,
+  setTabActive,
+} from '../../src/background/active-tabs';
+import {
   isValidManualRate,
   type RateResult,
 } from '../../src/background/rate-service';
@@ -6,6 +10,7 @@ import { getConfiguration, setConfiguration } from '../../src/config/store';
 import type { RateProvider } from '../../src/core/types';
 import type { Message } from '../../src/shared/messages';
 
+const activateEl = document.querySelector<HTMLInputElement>('#activate')!;
 const rateValueEl =
   document.querySelector<HTMLParagraphElement>('#rate-value')!;
 const rateMetaEl = document.querySelector<HTMLParagraphElement>('#rate-meta')!;
@@ -92,5 +97,34 @@ manualRateEl.addEventListener('change', () => {
   })();
 });
 
+async function currentTabId(): Promise<number | undefined> {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  return tab?.id;
+}
+
+activateEl.addEventListener('change', () => {
+  void (async () => {
+    const tabId = await currentTabId();
+    if (tabId === undefined) {
+      activateEl.checked = false;
+      return;
+    }
+
+    if (activateEl.checked)
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        files: ['content-script.js'],
+      });
+
+    await setTabActive(tabId, activateEl.checked);
+  })();
+});
+
+async function loadActivation(): Promise<void> {
+  const tabId = await currentTabId();
+  activateEl.checked = tabId !== undefined && (await isTabActive(tabId));
+}
+
+void loadActivation();
 void loadConfiguration();
 void refreshRateStatus();
