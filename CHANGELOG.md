@@ -6,6 +6,8 @@ El formato sigue los lineamientos de Keep a Changelog y el proyecto adhiere al v
 
 ## [No publicado]
 
+## [1.0.0] - 2026-08-11
+
 ### Agregado
 
 - La extensión está activa por defecto en cualquier página. Subrayar un monto en pesos muestra un
