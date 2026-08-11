@@ -1,8 +1,8 @@
 # ARS to USD - Documento de diseño
 
-Extensión de Chrome (Manifest V3) que detecta montos expresados en pesos argentinos dentro de una
-página y anexa su equivalente en dólares, usando la cotización oficial o un valor manual definido
-por el usuario.
+Extensión de Chrome (Manifest V3) que convierte a dólares un monto en pesos argentinos que el
+usuario subraya en cualquier página, usando la cotización oficial, alguna de las cotizaciones
+alternativas del dólar, o un valor manual definido por el usuario.
 
 ## 1. Alcance
 
@@ -10,23 +10,21 @@ por el usuario.
 
 - Navegador: Chrome (Manifest V3) únicamente.
 - Conversión unidireccional: ARS a USD.
-- Cotización: dólar oficial obtenido de una API pública, o valor manual ingresado por el usuario.
-- Presentación: el precio original se conserva intacto y el equivalente en dólares se anexa a
-  continuación.
-- Activación: manual, por acción explícita del usuario desde el popup de la extensión.
-- Corrección por parte del usuario: marcar una conversión como falsa alarma y desmarcarla, con
-  persistencia por sitio entre visitas.
-- Conversión manual de montos que la detección automática no reconoce (sin marcador de moneda),
-  desde el menú contextual sobre texto seleccionado, con memoria por sitio para páginas similares
-  (ver sección 15).
+- Cotización: dólar oficial, blue, bolsa (MEP), contado con liqui (CCL), tarjeta, mayorista o
+  cripto, obtenidas de una API pública, o valor manual ingresado por el usuario.
+- Disparo: el usuario subraya el monto que quiere convertir. No hay escaneo de página ni
+  detección automática.
+- Presentación: un panel flotante junto a la selección, sin modificar el DOM de la página.
+- Activación: la extensión está activa por defecto en cualquier sitio; el popup permite
+  desactivarla en el sitio actual, con la preferencia recordada entre visitas.
 
-### 1.2. Fuera del alcance (v1)
+### 1.2. Fuera del alcance
 
 - Firefox, Edge u otros navegadores.
 - Conversión inversa (USD a ARS).
-- Cotizaciones alternativas (blue, MEP, contado con liquidación, tarjeta, cripto).
-- Contenido dentro de `iframe` de origen cruzado y dentro de Shadow DOM cerrado.
-- Ejecución automática al cargar la página.
+- Corrección de falsos positivos o memoria de montos aprendidos: no aplican cuando quien decide
+  qué convertir es el usuario y no un detector.
+- Selección dentro de `iframe` de origen cruzado y dentro de Shadow DOM cerrado.
 - Historial de cotizaciones o gráficos.
 
 Las limitaciones de Shadow DOM e `iframe` se documentan como conocidas y aceptadas.
@@ -40,30 +38,57 @@ diferida, actualización de carritos). Un scraper externo obtiene HTML muerto y 
 contenido. Además la GUI necesita estar acoplada a la pestaña activa, cosa que un proceso externo
 no puede resolver sin un canal adicional.
 
-### 2.2. Inyección programática y no `content_scripts` declarativo
+### 2.2. Disparo por selección, no por escaneo
 
-Como la activación es manual, el content script se inyecta con `chrome.scripting.executeScript`
-sobre la pestaña activa cuando el usuario lo pide. Consecuencias:
+Una versión anterior de este proyecto escaneaba la página entera al apretar un botón y decidía
+sola qué montos eran precios en pesos, con un aparato de detección por marcador de moneda, señales
+de contexto de página (dominio, locale, JSON-LD) y niveles de confianza. Ese modelo generaba tanto
+falsos positivos como falsos negativos, y necesitaba una capa entera de corrección: marcado de
+falsas alarmas, reglas de supresión persistentes por sitio, memoria de montos aprendidos.
 
-- El manifiesto no declara `content_scripts` ni `host_permissions` de terceros.
-- El permiso `activeTab` se otorga por gesto del usuario y expira al navegar, lo cual es
-  exactamente la semántica que se busca.
-- No hace falta blocklist de dominios: si el usuario no aprieta el botón, la extensión no toca
-  nada.
+El modelo actual invierte la responsabilidad. El usuario subraya el monto que quiere convertir; ese
+gesto es la confirmación de que ahí hay un precio, y es una señal más confiable que cualquier
+heurística. La extensión no evalúa si el monto está en pesos, en dólares o en otra moneda, ni
+intenta adivinar la nacionalidad del sitio: si el usuario lo subrayó, lo quiere convertido. La
+consecuencia se acepta explícitamente: subrayar un monto que ya estaba en dólares produce un
+resultado sin sentido, de la misma forma en que escribir mal un número en una calculadora produce
+un resultado sin sentido. Es responsabilidad del usuario, no algo que la extensión pueda resolver
+sin volver a necesitar todo el aparato de detección que este cambio elimina.
 
-### 2.3. Núcleo puro separado de la capa DOM
+Lo único que la extensión valida es que la selección tenga *forma* de valor monetario, para que el
+panel no aparezca cuando el usuario subraya texto por cualquier otro motivo. Ver sección 3.
 
-Toda la lógica de detección, parseo y conversión vive en funciones puras sin acceso a `document` ni
-a `window`. La capa DOM solo las invoca. Esto permite testear el detector contra un corpus de
-strings reales sin levantar un navegador, que es donde se concentra el riesgo real del proyecto.
+### 2.3. Activa por defecto, con content script declarativo
+
+Como no hace falta decidir nada sobre el contenido de la página, tampoco hace falta un gesto previo
+del usuario para empezar a escuchar selecciones. El content script se declara en el manifiesto
+(`content_scripts` con `matches` sobre todo `http`/`https`) y Chrome lo inyecta solo en cada carga
+de página, sin intervención de la extensión.
+
+Esto es un cambio de rumbo consciente respecto a versiones anteriores del proyecto, que preferían
+activación manual por pestaña con `activeTab` para evitar la advertencia de permisos amplios que
+Chrome muestra al instalar una extensión con `content_scripts` declarativo sobre todos los sitios
+("leer y cambiar tus datos en todos los sitios web que visitás"). Se decidió pagar ese costo a
+cambio de que la extensión funcione sin que el usuario tenga que acordarse de activarla en cada
+pestaña nueva.
+
+El popup conserva un interruptor, invertido respecto al de antes: por defecto la extensión está
+activa, y el interruptor sirve para desactivarla en el sitio actual. Ver sección 6.
+
+### 2.4. Núcleo puro separado de la capa de página
+
+El filtro que decide si una selección es un monto convertible, el parseo del número, la conversión
+y el formato de salida viven en funciones puras sin acceso a `document` ni a `window`. La capa de
+página solo las invoca. Esto permite testear esa lógica contra una tabla de casos sin levantar un
+navegador.
 
 La firma central es:
 
 ```typescript
-detect(text: string, context: PageContext): Array<DetectedAmount>;
+readSelection(text: string): SelectedAmount | undefined;
 ```
 
-### 2.4. Fetch de cotización en el service worker
+### 2.5. Fetch de cotización en el service worker
 
 La llamada a la API se hace desde el background y nunca desde el content script. Motivos:
 
@@ -71,67 +96,47 @@ La llamada a la API se hace desde el background y nunca desde el content script.
 - Centraliza la caché: una sola cotización compartida por todas las pestañas.
 - El `host_permissions` de la API queda acotado al background.
 
-## 3. Detección
+## 3. Lectura de la selección
 
-El objetivo no es determinar si una página es argentina, sino si un monto puntual está expresado en
-pesos. La nacionalidad del sitio es una señal de contexto que aumenta o disminuye la confianza,
-nunca el criterio de decisión.
+### 3.1. El filtro
 
-### 3.1. Contexto de página
-
-Se construye una única vez por ejecución y se pasa a todas las llamadas del detector.
+La extensión no clasifica moneda ni infiere nacionalidad de sitio. El único criterio es la forma de
+la selección: tiene que ser un número, con un marcador de moneda opcional adelante o atrás, y nada
+más. Nada de palabras sueltas, nada de dos montos, nada de un monto dentro de una frase.
 
 ```typescript
-export type PageContext = {
-  /** Hostname of the current document. */
-  hostname: string;
+export type SelectedAmount = {
+  /** The selected text, trimmed, as the panel should echo it back. */
+  rawText: string;
 
-  /** Whether the hostname belongs to an Argentine top level domain. */
-  isArgentineDomain: boolean;
-
-  /** Value of the document language attribute, if present. */
-  documentLanguage?: string;
-
-  /** Whether the document declares an Argentine locale. */
-  isArgentineLocale: boolean;
-
-  /** Prices explicitly declared as ARS in the page structured data. */
-  declaredArsPrices: Set<number>;
-
-  /** Whether the page structured data declares any non ARS currency. */
-  hasForeignCurrencyMarkup: boolean;
+  /** The parsed numeric value, in Argentine pesos. */
+  valueArs: number;
 };
+
+function readSelection(text: string): SelectedAmount | undefined;
 ```
 
-Señales que alimentan el contexto:
+Reglas, todas necesarias para devolver un resultado:
 
-| Señal | Fuente | Peso |
-| --- | --- | --- |
-| TLD `.ar` o `.com.ar` | `location.hostname` | Medio |
-| `<html lang="es-AR">` | Atributo `lang` | Medio |
-| `og:locale` con `es_AR` | Meta tags | Bajo |
-| `priceCurrency: "ARS"` en JSON-LD | `script[type="application/ld+json"]` | Alto |
-| `priceCurrency` distinto de ARS en JSON-LD | Idem | Alto, en contra |
+1. El texto recortado de espacios no puede estar vacío.
+2. No puede superar 24 caracteres. Entra cómodo un `US$ 1.234.567.890,12` y no entra una oración.
+3. Tiene que matchear un patrón anclado (`^...$`) de número con marcador opcional. El anclaje es lo
+   que descarta un monto dentro de una frase: sin él, cualquier texto que contenga un número en
+   algún lugar pasaría el filtro.
+4. La cantidad de dígitos del número no puede superar 12. Un número de trece dígitos no suele ser
+   un precio: es más probable que sea un número de tarjeta, un teléfono o un código de seguimiento.
+5. El valor parseado tiene que ser finito y mayor a cero.
 
-El JSON-LD de schema.org es la señal más confiable cuando existe. Se recorren los nodos `Product`,
-`Offer` y `AggregateOffer`, y los montos declarados como ARS se guardan en `declaredArsPrices`.
-Cualquier monto de texto que coincida numéricamente con uno de esos valores obtiene confianza alta
-de forma directa.
+Cualquier selección que no cumpla todo esto se ignora en silencio: sin panel, sin aviso. El usuario
+estaba subrayando para otra cosa y la extensión no tiene por qué interrumpirlo.
 
-### 3.2. Reconocimiento de tokens
+### 3.2. Marcadores de moneda como ruido tolerado
 
-Se busca un símbolo o código de moneda seguido de un número, o un número seguido de una palabra de
-moneda. La presencia de marcador de moneda es obligatoria: un número suelto nunca se convierte.
-Esto elimina de raíz la mayoría de los falsos positivos (años, SKUs, teléfonos, cantidades).
-
-Prefijos reconocidos, en orden de prioridad:
-
-1. Marcadores de dólar: `U$S`, `US$`, `USD`, `u$d`, `US $`. Rechazo inmediato.
-2. Marcadores de peso explícitos: `ARS`, `AR$`, `$ARS`.
-3. Símbolo ambiguo: `$`.
-
-Sufijos reconocidos: `pesos`, `ARS`, `pesos argentinos`, `dólares`, `USD` (los dos últimos como
-rechazo).
+A diferencia de una versión anterior de este proyecto, los marcadores de moneda (`$`, `ARS`, `AR$`,
+`pesos`, pero también `USD`, `U$S`, `US$`, `dólares`) no se clasifican ni se usan para aceptar o
+rechazar una selección. Son ruido tolerado alrededor del número: `$1.999` y `US$ 100` se aceptan
+por igual, porque el usuario los subrayó y no porque el marcador diga algo sobre la moneda real del
+monto.
 
 ### 3.3. Parseo del número
 
@@ -146,51 +151,40 @@ Reglas, en orden:
 3. Si hay solo un punto y el grupo final tiene 1 o 2 dígitos, es decimal. `1.50` da `1.5`.
 4. Si no hay separadores, se parsea directo.
 
-La regla 2 es la que resuelve el caso frecuente de `$1.500` en un sitio argentino, que en formato
-en-US se leería como mil quinientos milésimos.
+La regla 2 es la que resuelve el caso frecuente de `$1.500` en un sitio argentino. Cuando el texto
+seleccionado viene en formato en-US inequívoco (`1,234.56`), se interpreta igual como el valor que
+representa: la ambigüedad ya no baja ninguna confianza, porque no hay confianza que bajar.
 
-Cuando el número viene en formato en-US inequívoco (`1,234.56`), es una señal en contra de ARS y
-baja la confianza.
+### 3.4. Selección en la página
 
-### 3.4. Niveles de confianza
-
-```typescript
-export type Confidence = 'high' | 'medium' | 'low';
-```
-
-- **high**: marcador explícito `ARS` / `AR$`, o coincidencia con un precio declarado como ARS en el
-  JSON-LD de la página.
-- **medium**: símbolo `$` ambiguo, más dominio o locale argentino, más formato numérico es-AR.
-- **low**: símbolo `$` ambiguo sin contexto argentino suficiente, o formato numérico en-US.
-- **Rechazo**: cualquier marcador de dólar presente en el token, o `hasForeignCurrencyMarkup` con
-  ausencia total de señales de ARS.
-
-El umbral mínimo para convertir es configurable y por defecto es `medium`. Los montos convertidos
-con confianza `low` se renderizan con un estilo distinto para que el usuario sepa que la extensión
-no está segura.
-
-### 3.5. Exclusiones de recorrido
-
-No se procesan nodos de texto contenidos en:
-
-- `script`, `style`, `noscript`, `template`
-- `input`, `textarea`, `select`, `option`
-- Cualquier elemento con `contenteditable`
-- Cualquier elemento con el atributo `data-aru-wrap` (anotación previa de la extensión)
+- Se escucha `mouseup` y `keyup`, no `selectionchange`, que dispara en cada píxel de un arrastre.
+- El texto se obtiene con `Range.toString()` y no con el `textContent` del nodo ancla, porque la
+  selección cruza nodos con frecuencia: el símbolo en un `<span>` y el número en otro es un patrón
+  común en sitios de e-commerce.
+- Se ignoran selecciones dentro de `[contenteditable]`, `input` y `textarea`. Si había un panel
+  abierto de una selección anterior, se cierra.
 
 ## 4. Cotización
 
 ### 4.1. Fuente
 
-Endpoint primario: `https://dolarapi.com/v1/dolares/oficial`. Es público, sin API key y con CORS
-abierto.
+Endpoint base: `https://dolarapi.com/v1/dolares/<casa>`. Es público, sin API key y con CORS
+abierto. Casas disponibles:
 
-Respuesta relevante:
+| Casa | Slug |
+| --- | --- |
+| Oficial | `oficial` |
+| Blue | `blue` |
+| Bolsa (MEP) | `bolsa` |
+| Contado con liqui (CCL) | `contadoconliqui` |
+| Tarjeta | `tarjeta` |
+| Mayorista | `mayorista` |
+| Cripto | `cripto` |
+
+Respuesta relevante, igual en todas las casas:
 
 ```json
 {
-  "moneda": "USD",
-  "casa": "oficial",
   "compra": 1010.0,
   "venta": 1050.0,
   "fechaActualizacion": "2026-08-10T14:00:00.000Z"
@@ -199,78 +193,85 @@ Respuesta relevante:
 
 Se usa el valor de `venta` por defecto, que es el precio al que se compran dólares y por lo tanto el
 que representa el costo real de convertir. El lado (`compra`, `venta` o promedio) queda como opción
-de configuración.
+de configuración, común a todas las casas.
 
-Fuente de respaldo si el primario falla: `https://api.bluelytics.com.ar/v2/latest`, campo
-`oficial.value_sell`.
+Fuente de respaldo si el primario falla: `https://api.bluelytics.com.ar/v2/latest`. Solo cubre las
+casas `oficial` y `blue`, que son las únicas que esa API expone; para el resto de las casas, si
+dolarapi.com falla, no hay segundo intento y se pasa directo a la caché vencida o al error.
 
 ### 4.2. Caché y frescura
 
 - TTL por defecto: 10 minutos.
-- La cotización cacheada se guarda en `chrome.storage.local` junto a su timestamp de obtención y la
-  fecha de actualización informada por la fuente.
-- Si la API falla y existe un valor cacheado vencido, se usa igual pero se marca `isStale: true`. El
-  popup y la anotación deben reflejar esa condición de forma visible.
-- Si no hay valor cacheado y la API falla, la extensión no convierte nada y el popup informa el
-  error. No se inventa una cotización.
+- Cada casa tiene su propia entrada de caché en `chrome.storage.local` (clave `rate-cache:<casa>`),
+  junto a su timestamp de obtención y la fecha de actualización informada por la fuente. Cambiar de
+  casa en el popup no reutiliza una cotización vieja de otra.
+- Si la API falla y existe un valor cacheado vencido para esa casa, se usa igual pero se marca
+  `isStale: true`. El popup y el panel deben reflejar esa condición de forma visible.
+- Si no hay valor cacheado y la API falla, la extensión no convierte nada y lo informa. No se
+  inventa una cotización.
 
-El popup siempre muestra la fuente, el valor y la antigüedad del dato. Convertir con una cotización
-vieja sin avisar es peor que no convertir.
+El popup y el panel siempre muestran la fuente, el valor y la antigüedad del dato. Convertir con
+una cotización vieja sin avisar es peor que no convertir.
 
 ### 4.3. Modo manual
 
-El usuario puede fijar un valor manual. Cuando `rateSource` es `manual`, el background ni siquiera
-consulta la API. La anotación indica que la cotización es manual para que el usuario no confunda el
-origen del número.
+El usuario puede fijar un valor manual. Cuando `rateSource` es `'manual'`, el background ni siquiera
+consulta la API.
 
-Validación del input: número positivo, mayor a cero, con tope superior razonable para evitar errores
-de tipeo silenciosos.
+Validación del input: número positivo, mayor a cero, con tope superior de 1.000.000 para evitar
+errores de tipeo silenciosos.
 
-## 5. Anotación en el DOM
+## 5. El panel flotante
 
 ### 5.1. Estrategia
 
-No se usa `innerHTML` en ningún caso. Reemplazar HTML por regex rompe event listeners y es un vector
-de inyección. El recorrido se hace con `TreeWalker` sobre `NodeFilter.SHOW_TEXT` y cada coincidencia
-se materializa dividiendo el nodo de texto con `splitText` e insertando un elemento envoltorio.
+No se toca el DOM de la página en ningún caso: no hay nada que anotar, revertir, ni sincronizar con
+mutaciones del sitio. El panel es un elemento propio, montado en un host con Shadow DOM adjunto al
+`body`, para que los estilos del sitio no lo deformen y los propios no se filtren hacia afuera.
 
-Estructura resultante:
+```typescript
+export type PanelContent =
+  | {
+      status: 'ok';
+      rawText: string;
+      converted: string;
+      sourceLabel: string;
+      ageLabel: string;
+      isStale: boolean;
+    }
+  | { status: 'error'; rawText: string; message: string };
 
-```html
-<span data-aru-wrap data-aru-original="$15.000" data-aru-confidence="high">
-  $15.000
-  <span data-aru-usd> (USD 12,50)</span>
-</span>
+function showAmountPanel(
+  getAnchorRect: () => DOMRect | undefined,
+  content: PanelContent,
+  onClose: () => void,
+): void;
+
+function closeAmountPanel(): void;
 ```
 
-El atributo `data-aru-original` permite revertir sin ambigüedad y el atributo `data-aru-wrap` da
-idempotencia: un segundo escaneo ignora lo ya procesado.
+### 5.2. Posicionamiento
 
-El elemento `[data-aru-usd]` es además el objetivo de click para marcar una falsa alarma, según lo
-descripto en la sección 6.7.
+El panel se ancla con `Range.getBoundingClientRect()` de la selección, con corrección para no
+salirse del viewport, y se reposiciona en `scroll` y `resize`. `getAnchorRect` es una función y no
+un valor fijo: se vuelve a evaluar en cada reposicionamiento, contra el mismo `Range` clonado al
+abrir el panel. Si en algún momento deja de devolver un rect (la selección ya no existe), el panel
+se cierra solo.
 
-### 5.2. Reversión
+### 5.3. Cierre
 
-Recorrer todos los `[data-aru-wrap]`, reemplazarlos por un nodo de texto con el contenido de
-`data-aru-original` y llamar a `normalize()` sobre el padre para reunificar los nodos de texto
-partidos.
+- Click afuera del panel, detectado con `event.composedPath()`, que atraviesa el límite del Shadow
+  DOM y permite distinguir un click dentro del panel de uno fuera de él.
+- Tecla `Escape`.
+- Al no encontrar un monto válido en la selección siguiente (ver sección 3.1).
 
-### 5.3. Estilos
+### 5.4. Contenido
 
-Los estilos se inyectan en un `<style>` propio con selectores basados en los atributos `data-aru-*`,
-que son específicos y no colisionan con clases del sitio. Se usan propiedades heredadas
-(`color`, `opacity`, `font-size` relativo) para no romper layouts de grillas de precios.
+Muestra el monto original tal como fue seleccionado, el monto convertido, y la fuente y antigüedad
+de la cotización usada, con el aviso de dato vencido de la sección 4.2 cuando corresponde. Si
+`RATE_GET` devuelve un error, el panel lo muestra en vez de fallar en silencio.
 
-Los montos de confianza `low` llevan un subrayado punteado y un `title` que explica la incertidumbre.
-
-### 5.4. Rendimiento
-
-- Recorrido en lotes con `requestIdleCallback`, con tope de nodos por lote.
-- Tope duro de anotaciones por página para evitar colgar listados muy largos.
-- `MutationObserver` activo solo mientras la sesión está activa, con debounce y desconexión temporal
-  durante las escrituras propias para evitar el bucle de retroalimentación.
-
-### 5.5. Formato de salida
+Formato de salida del monto convertido:
 
 ```typescript
 new Intl.NumberFormat('es-AR', {
@@ -281,158 +282,42 @@ new Intl.NumberFormat('es-AR', {
 
 Prefijo `USD`. Ejemplo: `USD 12,50`. Valores menores a un centavo se muestran como `< USD 0,01`.
 
-## 6. Supresión de falsos positivos
+## 6. Activación por sitio
 
-El usuario puede marcar una conversión como incorrecta. La marca se persiste por sitio y en visitas
-posteriores esa detección deja de convertirse. La marca también se puede quitar.
+### 6.1. Modelo
 
-Esta es la única señal de calidad real que produce el sistema, y por eso se guarda con el motivo del
-rechazo y no solo como un booleano.
-
-### 6.1. El problema de identidad
-
-Marcar "este monto no debe convertirse" exige poder reconocer el mismo monto en la próxima visita.
-El identificador obvio no sirve en ninguno de sus dos extremos:
-
-- Identificar por el texto del token falla cuando el número cambia. Un contador que hoy dice
-  `$1.240` mañana dice `$1.310` y la regla no aplica más.
-- Identificar por posición exacta en el DOM falla en cuanto el sitio re-renderiza, reordena una
-  lista o cambia el orden de los resultados.
-
-La solución es una firma estructural del contenedor, que describe dónde vive el monto y no cuánto
-vale, más la posibilidad de usar el token literal cuando el texto sí es estable.
-
-### 6.2. Firma estructural
-
-Se construye subiendo desde el elemento que contiene el nodo de texto, hasta un máximo de cinco
-ancestros o hasta `body`. Por cada nivel se elige el descriptor más estable disponible, en este
-orden:
-
-1. `#id`, si el `id` existe y no parece autogenerado.
-2. `[data-testid=valor]` u otro `data-*` semántico.
-3. La primera clase que parezca semántica.
-4. `:nth-child(n)` como último recurso.
-
-Se descartan como no estables los identificadores y clases que contienen hashes o secuencias largas
-de dígitos, típicos de CSS modules y de frameworks con clases generadas (`css-1x2y3z`, `sc-a1b2c3`).
-Si un nivel solo ofrece descriptores inestables se cae a `nth-child`.
-
-La firma resultante se guarda como string legible, no hasheada, para que el usuario pueda revisar y
-entender sus propias reglas desde el popup.
-
-### 6.3. Alcance de la regla
+La extensión está activa por defecto en cualquier página `http`/`https`. El popup permite
+desactivarla en el sitio actual; esa preferencia es la única que se persiste, como lista de
+exclusión por hostname.
 
 ```typescript
-export type SuppressionScope =
-  /** Matches the literal token text anywhere in the host. */
-  | 'token'
-
-  /** Matches the exact structural signature, including positional descriptors. */
-  | 'location'
-
-  /** Matches the structural signature with positional descriptors removed. */
-  | 'location-group';
+export type DisabledHostsState = Array<string>;
 ```
 
-- `location` es el valor por defecto al marcar una falsa alarma. Suprime ese lugar puntual, cualquiera
-  sea el número que aparezca ahí.
-- `location-group` se ofrece como acción secundaria, "aplicar a todos los casos similares", y resuelve
-  el caso de un listado donde la misma columna produce el mismo falso positivo en cada fila.
-- `token` se ofrece cuando el texto es claramente estático, por ejemplo un código de producto que
-  empieza con `$`.
+Persistencia: `chrome.storage.local`, clave `disabled-hosts`. `local` y no `sync`: es una
+preferencia de navegación por dispositivo, no algo que deba seguir al usuario entre instalaciones
+de Chrome como sí lo hace la configuración de cotización.
 
-Las reglas son por hostname exacto, con normalización del prefijo `www.`. No se propagan entre
-subdominios.
+Los hostnames se normalizan (minúsculas, sin el prefijo `www.`) antes de guardarse o compararse, así
+`www.example.com` y `example.com` comparten una sola entrada.
 
-### 6.4. Modelo de datos
+### 6.2. Al cargar una página
 
-```typescript
-export type SuppressionReason =
-  /** The matched text is not a monetary value at all. */
-  | 'not-a-price'
+El content script, declarado en el manifiesto y sin necesidad de que el popup lo inyecte, consulta
+al cargar si su propio hostname está en la lista de exclusión y arranca activo o inactivo según esa
+respuesta.
 
-  /** The matched text is monetary but not expressed in Argentine pesos. */
-  | 'not-ars';
+### 6.3. Cambio en caliente
 
-export type SuppressionRule = {
-  /** Stable identifier derived from the hostname, scope and matcher. */
-  id: string;
+Si el usuario cambia el interruptor del popup mientras la pestaña ya está abierta, el popup persiste
+el cambio y además le manda un mensaje directo (`ACTIVATE` o `DEACTIVATE`) al content script de esa
+pestaña, para que el efecto sea inmediato sin necesidad de recargar la página.
 
-  /** Hostname the rule applies to, with the www prefix removed. */
-  hostname: string;
+### 6.4. Indicador
 
-  /** What the rule matches against. */
-  scope: SuppressionScope;
-
-  /** Literal token text. Present when scope is token. */
-  token?: string;
-
-  /** Structural signature of the container. Present when scope is location or location-group. */
-  signature?: string;
-
-  /** Why the user marked the detection as a false positive. */
-  reason: SuppressionReason;
-
-  /** Creation timestamp, in epoch milliseconds. */
-  createdAt: number;
-
-  /** Last time the rule suppressed a detection, in epoch milliseconds. */
-  lastMatchedAt?: number;
-};
-```
-
-La distinción entre `not-a-price` y `not-ars` importa. El primer motivo señala una falla del
-reconocimiento de tokens y es material para corregir el detector. El segundo señala una falla de la
-inferencia de moneda y, en una versión futura con conversión inversa, permitiría tratar ese monto
-como dólares en lugar de simplemente ignorarlo.
-
-### 6.5. Persistencia
-
-Las reglas viven en `chrome.storage.local` bajo la clave `suppression:<hostname>`, con un array por
-sitio.
-
-- `local` y no `sync` porque `sync` impone 8 KB por ítem y 100 KB totales, que un usuario activo
-  agota. La configuración sigue en `sync`, las reglas no.
-- Tope de 200 reglas por sitio y poda LRU por `lastMatchedAt` al alcanzarlo.
-- El popup ofrece "limpiar reglas de este sitio" y el listado completo de reglas del host actual.
-
-### 6.6. Integración en el pipeline
-
-La supresión se evalúa después de la detección y antes de la anotación, y vive en la capa de página
-porque necesita la posición en el DOM para calcular la firma. El núcleo se mantiene puro exponiendo
-la función de matcheo:
-
-```typescript
-matches(rule: SuppressionRule, candidate: SuppressionCandidate): boolean;
-```
-
-donde `SuppressionCandidate` transporta el token normalizado y las dos variantes de firma ya
-calculadas por la capa de página. Así el matcheo se testea sin DOM.
-
-Las reglas suprimen de forma dura y no bajan la confianza: es una decisión explícita del usuario y
-tiene prioridad sobre cualquier señal automática.
-
-### 6.7. Interacción
-
-**Marcar.** El monto anexado es clickeable y abre un popover con las opciones "No es un precio",
-"No está en pesos", "Aplicar a todos los similares" y "Cancelar". Al confirmar, la anotación se
-revierte en el acto y se persiste la regla.
-
-Dos detalles obligatorios de implementación:
-
-- El handler del click hace `preventDefault` y `stopPropagation`, porque las anotaciones suelen caer
-  dentro de un `<a>` de tarjeta de producto y de lo contrario el sitio navega.
-- El popover se monta en un host con Shadow DOM adjunto al `body`, para que los estilos del sitio no
-  lo deformen y los propios no se filtren.
-
-**Desmarcar.** Por dos vías:
-
-- Desde el popup, en el listado de reglas del sitio actual, con el motivo y la firma visibles.
-- Desde la página, con un modo "mostrar suprimidos" que renderiza un marcador discreto en cada monto
-  que una regla bloqueó, clickeable para eliminar la regla y convertir ese monto.
-
-El resumen del escaneo informa cuántos montos fueron suprimidos por reglas, para que el usuario note
-si una regla vieja está bloqueando de más.
+El badge del ícono de la extensión solo aparece cuando el sitio actual está desactivado (texto
+`OFF`, en gris). Estar activa es el estado normal y no necesita anunciarse; estar desactivada es la
+excepción y sí vale la pena que se note sin abrir el popup.
 
 ## 7. Estructura del proyecto
 
@@ -441,87 +326,66 @@ ARS-to-USD-script/
   src/
     core/
       types.ts             Tipos compartidos del núcleo.
-      patterns.ts          Expresiones regulares de tokens monetarios.
+      patterns.ts           Patrón anclado de valor monetario.
       number-parser.ts     Parseo de formatos numéricos es-AR y en-US.
-      detector.ts          Función pura de detección y scoring de confianza.
-      converter.ts         Conversión de monto a USD.
-      formatter.ts         Formato de salida del monto convertido.
-      suppression.ts       Tipos y matcheo puro de reglas de supresión.
+      selection.ts         Función pura de lectura de la selección.
+      converter.ts          Conversión de monto a USD.
+      formatter.ts          Formato de salida del monto convertido.
+      hostname.ts           Normalización de hostnames.
     page/
-      context.ts           Construcción del PageContext desde el documento.
-      structured-data.ts   Lectura de JSON-LD de schema.org.
-      walker.ts            Recorrido de nodos de texto con exclusiones.
-      signature.ts         Cálculo de la firma estructural de un contenedor.
-      annotator.ts         Inserción y reversión de anotaciones.
-      feedback-popover.ts  Popover de marcado de falsa alarma.
-      observer.ts          MutationObserver de la sesión activa.
-      styles.css           Estilos de las anotaciones.
+      panel.ts              Panel flotante en Shadow DOM.
     background/
-      rate-service.ts      Obtención, caché y fallback de la cotización.
-      suppression-store.ts Persistencia, poda y consulta de reglas por sitio.
-      router.ts            Ruteo de mensajes.
-    popup/
-      index.html
-      main.ts
-      styles.css
+      rate-service.ts       Obtención, caché por casa y fallback de la cotización.
+      router.ts             Ruteo de mensajes (RATE_GET/RATE_REFRESH).
     shared/
-      messages.ts          Contratos de mensajería tipados.
-      storage.ts           Acceso tipado a chrome.storage.
+      messages.ts           Contratos de mensajería tipados.
+      storage.ts             Acceso tipado a chrome.storage.
+      disabled-hosts.ts     Lista de exclusión por sitio, y el badge.
+      rate-display.ts       Formato de fuente y antigüedad de cotización, compartido.
     config/
-      schema.ts            Tipo de configuración.
-      defaults.ts          Valores por defecto.
+      schema.ts             Tipo de configuración.
+      defaults.ts            Valores por defecto y endpoints.
+      store.ts               Lectura y escritura de la configuración.
   entrypoints/
     background.ts
-    content.ts
+    content.ts               Content script declarativo (matches http/https).
     popup/
   tests/
-    fixtures/              Corpus de strings reales de sitios argentinos.
-    detector.test.ts
-    number-parser.test.ts
-    suppression.test.ts
+    fixtures/
+    *.test.ts
+    page/panel.test.ts       Test de DOM del panel, con jsdom.
 ```
+
+`src/core/` es código puro sin acceso al DOM. `src/page/` es la única capa que toca `document`, y se
+testea con `@vitest-environment jsdom`. `entrypoints/` es orquestación fina sin tests unitarios
+propios.
 
 ## 8. Configuración
 
 ```typescript
 export type ArsToUsdConfiguration = {
-  /** Source used to obtain the exchange rate. */
-  rateSource: 'official' | 'manual';
+  /** Which dollar quote to use: a dolarapi.com house, or the manual rate. */
+  rateSource: RateHouse | 'manual';
 
   /** Manual exchange rate in ARS per USD. Only used when rateSource is manual. */
   manualRate: number;
 
-  /** Side of the official quote used for the conversion. */
-  rateSide: 'venta' | 'compra' | 'promedio';
+  /** Side of the quote used for the conversion. */
+  rateSide: RateSide;
 
-  /** Minimum confidence level required to annotate a detected amount. */
-  minConfidence: Confidence;
-
-  /** Cache lifetime for the official rate, in milliseconds. */
+  /** Cache lifetime for the rate, in milliseconds. */
   rateTtlMs: number;
-
-  /** Maximum number of annotations produced in a single page. */
-  maxAnnotations: number;
-
-  /** Whether the mutation observer stays active after the initial scan. */
-  watchMutations: boolean;
-
-  /** Whether suppressed amounts are rendered with a marker so they can be unmarked in place. */
-  showSuppressed: boolean;
-
-  /** Maximum number of suppression rules kept per hostname before LRU pruning. */
-  maxRulesPerHost: number;
 };
 ```
 
-Los valores por defecto viven en `config/defaults.ts`. Los endpoints y el TTL base se pueden
-sobreescribir en tiempo de build mediante variables `VITE_` para no hardcodear URLs en el código de
-dominio.
+Valores por defecto en `config/defaults.ts`: `rateSource: 'oficial'`, `manualRate: 1000`,
+`rateSide: 'venta'`, `rateTtlMs: 600000` (10 minutos). Los endpoints se pueden sobreescribir en
+tiempo de build mediante variables `VITE_` para no hardcodear URLs en el código de dominio.
 
 Persistencia:
 
-- `chrome.storage.sync`: configuración del usuario.
-- `chrome.storage.local`: caché de cotización y reglas de supresión.
+- `chrome.storage.sync`: configuración de cotización del usuario.
+- `chrome.storage.local`: caché de cotización por casa y lista de sitios desactivados.
 
 ## 9. Mensajería
 
@@ -529,35 +393,23 @@ Persistencia:
 export type Message =
   | { type: 'RATE_GET' }
   | { type: 'RATE_REFRESH' }
-  | { type: 'RULES_GET'; hostname: string }
-  | { type: 'RULES_ADD'; rule: SuppressionRule }
-  | { type: 'RULES_REMOVE'; hostname: string; ruleId: string }
-  | { type: 'RULES_CLEAR'; hostname: string }
-  | { type: 'SCAN_RUN'; rate: ExchangeRate; rules: Array<SuppressionRule> }
-  | { type: 'SCAN_REVERT' }
-  | { type: 'SCAN_STATUS' };
+  | { type: 'ACTIVATE' }
+  | { type: 'DEACTIVATE' };
 ```
 
-Flujo de una activación:
+`RATE_GET`/`RATE_REFRESH` van de cualquier página de la extensión (popup o content script) al
+background, resueltos contra `rate-service.ts`. `ACTIVATE`/`DEACTIVATE` van del popup directo al
+content script de la pestaña actual, vía `chrome.tabs.sendMessage`, para el cambio en caliente de
+la sección 6.3.
 
-1. El usuario abre el popup y presiona "Convertir".
-2. El popup pide la cotización al background (`RATE_GET`), que responde desde caché o desde la API,
-   y las reglas del host actual (`RULES_GET`).
-3. El popup inyecta el content script en la pestaña activa con `chrome.scripting.executeScript`.
-4. El popup envía `SCAN_RUN` con la cotización resuelta y las reglas del sitio.
-5. El content script construye el `PageContext`, recorre el DOM, descarta lo que matchea alguna regla
-   y anota el resto. Responde con el conteo de montos convertidos, la distribución por nivel de
-   confianza y la cantidad de montos suprimidos.
-6. El popup muestra el resultado y habilita el botón de revertir.
+Flujo de una conversión:
 
-Flujo de un marcado de falsa alarma:
-
-1. El usuario hace click en un monto anexado y elige un motivo en el popover.
-2. El content script calcula la firma estructural, arma la `SuppressionRule` y la envía al background
-   con `RULES_ADD`.
-3. El background persiste, poda si hace falta y confirma.
-4. El content script revierte esa anotación, y las equivalentes si el alcance elegido fue
-   `location-group`.
+1. El usuario subraya un monto en una página con la extensión activa.
+2. El content script llama a `readSelection` sobre el texto de la selección. Si no matchea, no pasa
+   nada.
+3. Si matchea, el content script pide la cotización vigente al background (`RATE_GET`), que
+   responde desde caché o desde la API según la casa configurada.
+4. El content script convierte el monto y muestra el panel anclado a la selección.
 
 ## 10. Manifiesto
 
@@ -565,22 +417,31 @@ Flujo de un marcado de falsa alarma:
 {
   "manifest_version": 3,
   "name": "ARS to USD",
-  "version": "0.1.0",
-  "permissions": ["activeTab", "scripting", "storage"],
+  "permissions": ["storage"],
   "host_permissions": ["https://dolarapi.com/*", "https://api.bluelytics.com.ar/*"],
   "action": { "default_popup": "popup.html" },
-  "background": { "service_worker": "background.js", "type": "module" }
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    { "matches": ["http://*/*", "https://*/*"], "js": ["content-scripts/content.js"] }
+  ]
 }
 ```
 
-No se declaran `content_scripts`. La inyección es siempre programática.
+No hay `activeTab` ni `scripting`: el content script se registra de forma declarativa, sin
+inyección programática. Esto implica que Chrome muestra la advertencia de permisos amplios al
+instalar ("leer y cambiar tus datos en todos los sitios web que visitás"), aceptada según lo
+razonado en la sección 2.3.
+
+Nota de implementación de WXT: el archivo tiene que llamarse `content.ts` (o `*.content.ts`) para
+que el framework lo registre como `content_scripts` en el manifiesto. Con otro nombre, las opciones
+de `defineContentScript` (incluido `matches`) se ignoran en silencio y el script queda sin uso.
 
 ## 11. Stack y herramientas
 
 - TypeScript en modo estricto.
 - WXT como framework de extensión, que resuelve la generación del manifiesto y el hot reload de
-  content scripts. Alternativa si se prefiere algo más crudo: Vite con `@crxjs/vite-plugin`.
-- Vitest para los tests del núcleo.
+  content scripts.
+- Vitest para los tests, con jsdom para los que tocan DOM.
 - Prettier para formato.
 - Yarn como gestor de paquetes.
 
@@ -589,143 +450,36 @@ No se declaran `content_scripts`. La inyección es siempre programática.
 El foco está en el núcleo puro. Los tests de DOM son secundarios.
 
 - `number-parser.test.ts`: tabla de casos de formatos es-AR y en-US, incluidos los ambiguos.
-- `detector.test.ts`: corpus de fixtures con strings reales extraídos de sitios argentinos, cada uno
-  con su `PageContext` y el resultado esperado, incluyendo los casos que deben rechazarse.
-- `suppression.test.ts`: matcheo de reglas por cada alcance, incluyendo el caso de firma
-  generalizada que debe matchear varias filas de un listado y no debe matchear un contenedor
-  distinto.
-
-El corpus de fixtures es el activo más importante del proyecto. Cada falso positivo o falso negativo
-encontrado en uso real se incorpora como caso antes de corregir el código. El mecanismo de marcado
-de falsas alarmas es, además de una función de producto, la fuente natural de ese corpus: lo que el
-usuario marca es exactamente lo que hay que agregar como fixture.
+- `selection.test.ts`: tabla de casos de `readSelection`, con selecciones que deben aceptarse y
+  selecciones que deben rechazarse por cada regla del filtro de la sección 3.1.
+- `rate-service.test.ts`: caché por casa, fallback a bluelytics solo para oficial y blue, modo
+  manual, y el caso de una casa sin fallback que falla directo a caché vencida o error.
+- `disabled-hosts.test.ts` y `hostname.test.ts`: persistencia de la lista de exclusión y
+  normalización de hostnames.
+- `page/panel.test.ts`: posicionamiento, contenido y cierre del panel, con `@vitest-environment
+  jsdom`.
 
 ## 13. Plan de trabajo
 
+Fases completas, en orden:
+
 | Fase | Contenido | Resultado |
 | --- | --- | --- |
-| 1 | `number-parser`, `patterns`, `detector`, tests con corpus inicial | Núcleo verificable sin navegador |
-| 2 | `rate-service` con caché, fallback y modo manual | Cotización confiable |
-| 3 | `walker` y `annotator` con reversión e idempotencia | Anotación funcional en páginas estáticas |
-| 4 | Popup con estado, selector de fuente e input manual | GUI completa |
-| 5 | `signature`, `suppression`, `suppression-store` y popover de marcado | Falsas alarmas persistentes por sitio |
-| 6 | Listado y borrado de reglas en el popup, modo "mostrar suprimidos" | Ciclo completo de marcar y desmarcar |
-| 7 | `structured-data` y `observer` | Confianza alta vía JSON-LD y soporte de SPAs |
-| 8 | Pulido de estilos, límites de rendimiento, empaquetado | Extensión instalable |
-
-La fase 5 depende de la 3, porque la firma se calcula sobre el contenedor de la anotación. Conviene
-no adelantarla: sin anotaciones reales no hay forma de validar que las firmas sobrevivan a un
-re-render.
+| 1 | Eliminación del pipeline de detección automática, supresión y conversión manual por menú contextual de la versión anterior | Árbol limpio |
+| 2 | `readSelection` y el patrón anclado de valor monetario, con tabla de casos | Núcleo verificable sin navegador |
+| 3 | Activación por pestaña (superada por la fase 5) | Ciclo de activación manual |
+| 4 | Lectura de la selección en la página y panel flotante | Flujo completo |
+| 5 | Cotizaciones alternativas de dolarapi.com y activación por defecto en todo sitio | Extensión en su forma actual |
 
 ## 14. Riesgos conocidos
 
 | Riesgo | Mitigación |
 | --- | --- |
-| Falsos positivos con `$` ambiguo | Marcador de moneda obligatorio, niveles de confianza, umbral configurable |
-| Cotización vencida usada silenciosamente | Marca `isStale` visible en popup y anotación |
-| Rotura de layouts en grillas de precios | Anexar en lugar de reemplazar, estilos heredados, tope de anotaciones |
-| Bucle de `MutationObserver` | Desconexión durante escrituras propias y debounce |
-| Cambio o caída de la API de cotización | Fuente de respaldo, endpoints configurables en build, modo manual siempre disponible |
-| Precios en Shadow DOM o `iframe` | Limitación documentada, sin mitigación en v1 |
-| Firma estructural que deja de matchear tras un rediseño del sitio | Descriptores estables por nivel, alcance `location-group` como red de seguridad, remarcado barato para el usuario |
-| Regla vieja que suprime de más | Conteo de suprimidos en el resumen del escaneo, modo "mostrar suprimidos", borrado por regla y por sitio |
-| Crecimiento indefinido de reglas en `storage.local` | Tope por host y poda LRU por `lastMatchedAt` |
-
-## 15. Conversión manual con memoria
-
-Capacidad agregada después del plan de trabajo original de la sección 13, a pedido explícito del
-usuario. Es, en espíritu, el inverso de la supresión de falsos positivos (sección 6): la supresión
-aprende "esto no es un precio"; esta capacidad aprende "esto sí lo es".
-
-### 15.1. El problema
-
-La sección 3.2 exige un marcador de moneda para convertir cualquier número: "un número suelto nunca
-se convierte". Esto elimina la mayoría de los falsos positivos, pero también produce falsos
-negativos legítimos: un sitio puede mostrar un precio sin ningún símbolo ni palabra de moneda
-adjunta (por ejemplo, un precio tachado al lado de una oferta, mostrado solo como el número). La
-detección automática nunca va a convertir ese caso, por diseño.
-
-### 15.2. Disparo: menú contextual sobre texto seleccionado
-
-El usuario selecciona el texto del monto y hace click derecho. El menú contextual ofrece
-`Convertir "%s" a USD` (`contexts: ['selection']`; Chrome sustituye `%s` por el texto seleccionado).
-
-Se eligió disparar sobre una selección de texto, y no rastrear la posición de cualquier click
-derecho, para no romper el principio de la sección 2.2: el manifiesto no declara `content_scripts`
-y la extensión no toca la página hasta que el usuario hace un gesto explícito. Rastrear todo click
-derecho exigiría un content script declarativo, siempre activo en toda página, escuchando
-`contextmenu` de antemano (la API de menús contextuales no entrega coordenadas ni el elemento del
-DOM en `onClicked`). Seleccionar el texto antes de hacer click derecho es un gesto explícito
-equivalente al de apretar "Convertir" en el popup, sin ese costo arquitectónico.
-
-Al hacer click en el ítem del menú, el background resuelve la configuración y la cotización
-vigente (mismo camino que ya usa para `RATE_GET`), inyecta el content script si hace falta, y le
-manda el mensaje `MANUAL_CONVERT_SELECTION` con la cotización resuelta, dirigido al mismo frame
-donde se hizo el click (`info.frameId`).
-
-El content script lee la selección viva de la página (`window.getSelection()`), no el texto que
-viajó en el mensaje: por el momento en que el click del menú llega, la selección del usuario sigue
-intacta en el documento. Se descarta si el nodo ancla de la selección no es un nodo de texto, o si
-ya está dentro de `[data-aru-wrap]` o `[contenteditable]`. El número a convertir es el que matchea
-más cerca del punto donde arranca la selección (no simplemente el primero del nodo), porque un nodo
-como "3 cuotas de $200" tiene más de un número.
-
-El monto se anota con la misma estructura `[data-aru-wrap]` de siempre, con confianza `high`
-siempre (es una confirmación explícita del usuario, la señal más confiable posible) y reutilizando
-`annotateTextNode` tal cual, incluido el callback de marcado de falsa alarma: un monto convertido a
-mano se puede volver a marcar como falsa alarma con el flujo que ya existe.
-
-### 15.3. Memoria: `InclusionRule`
-
-```typescript
-export type InclusionRule = {
-  /** Stable identifier derived from the hostname and the structural signature. */
-  id: string;
-
-  /** Hostname the rule applies to, with the www prefix removed. */
-  hostname: string;
-
-  /** Structural signature of the container, with positional descriptors removed. */
-  signatureGroup: string;
-
-  /** Creation timestamp, in epoch milliseconds. */
-  createdAt: number;
-
-  /** Last time the rule matched a detection, in epoch milliseconds. */
-  lastMatchedAt?: number;
-};
-```
-
-A diferencia de `SuppressionRule`, no tiene `scope` ni `token`. El pedido es que "páginas similares"
-conviertan solas, que es exactamente el alcance `location-group` de supresión (firma sin
-descriptores posicionales); un alcance `token` casi no sirve acá porque el número cambia de producto
-a producto, y un alcance `location` (posición exacta) tampoco sirve para generalizar entre
-documentos de DOM distintos. Con un solo comportamiento posible, no hace falta el campo `scope`.
-
-Persistencia: `chrome.storage.local`, clave `inclusion:<hostname>`, mismo patrón que
-`suppression-store.ts` (poda LRU por `lastMatchedAt ?? createdAt`, tope `maxRulesPerHost`
-reutilizado de la configuración existente, sin sumar un campo nuevo solo para esto).
-
-### 15.4. Integración en el pipeline de detección
-
-En cada escaneo, además de las reglas de supresión, el content script pide las reglas de inclusión
-del sitio (`INCLUSION_GET`). Para un nodo de texto donde `detect()` no encontró ningún candidato: si
-el sitio no tiene ninguna regla de inclusión, no se hace ningún trabajo extra (costo cero para el
-caso común). Si tiene alguna, se calcula la firma del contenedor y se revisa si matchea
-`signatureGroup`; si matchea, se extrae el número más cercano al principio del texto con el mismo
-patrón de número sin marcador que usa el marcado manual, y se arma un candidato sintético con
-confianza `high`.
-
-Ese candidato sintético sigue exactamente el mismo camino que cualquier otro candidato detectado: el
-filtro de reglas de supresión se aplica igual. Si una regla de inclusión aprendió mal un lugar,
-marcar ese monto como falsa alarma lo corrige sin tocar la regla de inclusión.
-
-### 15.5. Limitación de testing conocida
-
-Los menús contextuales nativos son UI del sistema operativo, no del DOM, y no son automatizables
-con Playwright ni con ninguna herramienta que dependa del protocolo de depuración del navegador. La
-verificación de esta capacidad prueba el resto del flujo end to end (lectura de la selección viva,
-extracción del número, anotación, persistencia de la regla, aplicación en escaneos posteriores)
-invocando directamente los mensajes que dispararía el click del menú, salteando solo el click nativo
-en sí. Es la misma clase de limitación ya documentada para el gesto de `activeTab` en las
-verificaciones manuales de fases anteriores.
+| El panel aparece cuando el usuario subraya texto por otro motivo | Filtro de forma de la sección 3.1, con umbrales ajustables |
+| Umbrales de largo y dígitos mal calibrados, que dejan afuera montos válidos | Cubiertos con tests, ajustables con uso real |
+| Convertir un monto que ya estaba en dólares | Sin mitigación, por decisión de producto. Queda en criterio del usuario |
+| Advertencia de permisos amplios al instalar, por el content script declarativo sobre todo sitio | Aceptada por decisión explícita de producto (sección 2.3) |
+| Cotización vencida usada silenciosamente | Marca `isStale` visible en el popup y en el panel |
+| Cambio o caída de la API de cotización | Fuente de respaldo para oficial y blue, endpoints configurables en build, modo manual siempre disponible |
+| Montos en Shadow DOM cerrado o `iframe` de origen cruzado | Limitación documentada, sin mitigación |
+| Sitios que cancelan o reescriben la selección con sus propios handlers | Se detecta en uso real, sin mitigación previa conocida |
