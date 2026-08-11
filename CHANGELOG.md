@@ -10,6 +10,9 @@ El formato sigue los lineamientos de Keep a Changelog y el proyecto adhiere al v
 
 - El popup tiene un interruptor para activar la extensión en la pestaña actual, con un indicador en
   el ícono que muestra si está activa sin necesidad de abrirlo.
+- Con la extensión activa, subrayar un monto en pesos muestra un panel flotante con su equivalente
+  en dólares, la fuente de la cotización usada y su antigüedad, incluido un aviso cuando el dato
+  está vencido. Reemplaza al escaneo automático de la página.
 
 ### Eliminado
 

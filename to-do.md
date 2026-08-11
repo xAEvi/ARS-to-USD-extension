@@ -115,31 +115,43 @@ una navegación real de un cambio de URL por `history.pushState` de una SPA: ese
 
 ## 7. Lectura de la selección
 
-- [ ] Leer el texto con `Range.toString()` y no con el `textContent` del nodo ancla. La selección
+- [x] Leer el texto con `Range.toString()` y no con el `textContent` del nodo ancla. La selección
       cruza nodos con frecuencia: el símbolo en un `<span>` y el número en otro es un patrón común
       en sitios de e-commerce.
-- [ ] Expandir el rango a los límites del número antes de parsear, para que una selección parcial
-      como `1.99` dentro de `1.999,00` no convierta un valor equivocado.
-- [ ] Escuchar `mouseup` y `keyup`, no `selectionchange`, que dispara en cada píxel del arrastre. Si
-      hace falta para la selección por teclado, va con debounce.
-- [ ] Ignorar selecciones dentro de `[contenteditable]`, `input` y `textarea`.
-- [ ] Pasar el texto por `readSelection` y no hacer nada si no pasa el filtro de la sección 4.
+- [ ] Expandir el rango a los límites del número antes de parsear. Sin implementar todavía: hoy una
+      selección parcial como `1.99` dentro de `1.999,00` simplemente no pasa el filtro de
+      `readSelection` (no matchea el patrón completo) y no se convierte nada, en vez de convertir el
+      valor completo corregido. Es más seguro que el bug original que esto prevenía, así que queda
+      pendiente como mejora y no como corrección urgente.
+- [x] Escuchar `mouseup` y `keyup`, no `selectionchange`. Sin debounce: ninguno de los dos dispara
+      por píxel de arrastre, a diferencia de `selectionchange`.
+- [x] Ignorar selecciones dentro de `[contenteditable]`, `input` y `textarea`, y cerrar el panel si
+      había uno abierto de una selección anterior.
+- [x] Pasar el texto por `readSelection` y no hacer nada si no pasa el filtro de la sección 4.
+
+Implementado en `entrypoints/content-script.ts`.
 
 ## 8. El panel
 
-- [ ] Montado en un host con Shadow DOM adjunto al `body`, para que los estilos del sitio no lo
+- [x] Montado en un host con Shadow DOM adjunto al `body`, para que los estilos del sitio no lo
       deformen ni los propios se filtren.
-- [ ] Anclado con `Range.getBoundingClientRect()`, con corrección de borde de viewport y
-      reposicionamiento en `scroll` y `resize`.
-- [ ] Muestra el monto original, el monto convertido, y la fuente y antigüedad de la cotización,
-      incluido el indicador de dato vencido que ya exige la sección 4.2 de `DISENO.md`.
-- [ ] Se cierra con click afuera, con `Escape` y al cambiar la selección.
+- [x] Anclado con `Range.getBoundingClientRect()`, con corrección de borde de viewport y
+      reposicionamiento en `scroll` y `resize`. Si el rango deja de existir al reposicionar (por
+      ejemplo, la selección se limpió), el panel se cierra solo.
+- [x] Muestra el monto original, el monto convertido, y la fuente y antigüedad de la cotización,
+      incluido el indicador de dato vencido que ya exige la sección 4.2 de `DISENO.md`. También
+      muestra el error de cotización cuando `RATE_GET` falla, en vez de fallar en silencio.
+- [x] Se cierra con click afuera (detectado con `event.composedPath()`, que atraviesa el límite del
+      Shadow DOM), con `Escape`, y al no encontrar un monto válido en la selección siguiente.
 
-Preguntas abiertas sobre el panel:
+Implementado en `src/page/panel.ts`, con tests en `tests/page/panel.test.ts` (con
+`@vitest-environment jsdom`, siguiendo el mismo patrón que tenían los tests de DOM de la v1).
+
+Preguntas abiertas sobre el panel, sin resolver en esta fase:
 
 - ¿El monto original es editable, para ajustar a mano lo que la selección tomó mal? El ejemplo de
-  referencia lo sugiere.
-- ¿Se puede copiar el monto convertido al portapapeles desde el panel?
+  referencia lo sugiere. Hoy es de solo lectura.
+- ¿Se puede copiar el monto convertido al portapapeles desde el panel? Hoy no.
 
 ## 9. Inventario de código
 
@@ -177,6 +189,11 @@ casos de parseo numérico y de `readSelection`, y se recuperan con
 | 3 | Estado activo por pestaña y popup nuevo | Ciclo de activación |
 | 4 | Lectura de la selección y panel flotante | Flujo completo |
 | 5 | Reescritura de `DISENO.md` y del README | Documentación coherente |
+
+Fases 1 a 4 completas. No se probó en un navegador real todavía, solo con `yarn typecheck`,
+`yarn test` (jsdom para el panel) y `yarn build`. Falta la verificación manual de la fase 8 del plan
+original de `DISENO.md` (instalar la extensión sin empaquetar y probar el flujo real) antes de dar
+por cerrado el cambio.
 
 La fase 1 va primero a propósito. Escribir el filtro nuevo con el pipeline viejo todavía colgando
 obliga a mantener vivo código que igual se va a borrar.

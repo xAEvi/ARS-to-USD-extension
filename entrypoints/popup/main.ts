@@ -7,8 +7,11 @@ import {
   type RateResult,
 } from '../../src/background/rate-service';
 import { getConfiguration, setConfiguration } from '../../src/config/store';
-import type { RateProvider } from '../../src/core/types';
 import type { Message } from '../../src/shared/messages';
+import {
+  formatRateAge,
+  RATE_PROVIDER_LABELS,
+} from '../../src/shared/rate-display';
 
 const activateEl = document.querySelector<HTMLInputElement>('#activate')!;
 const rateValueEl =
@@ -21,19 +24,6 @@ const manualRateEl = document.querySelector<HTMLInputElement>('#manual-rate')!;
 const manualRateErrorEl =
   document.querySelector<HTMLParagraphElement>('#manual-rate-error')!;
 
-const PROVIDER_LABELS: Record<RateProvider, string> = {
-  dolarapi: 'dolarapi.com',
-  bluelytics: 'bluelytics',
-  manual: 'manual',
-};
-
-function formatAge(fetchedAt: number): string {
-  const minutes = Math.round((Date.now() - fetchedAt) / 60_000);
-  if (minutes < 1) return 'hace instantes';
-  if (minutes === 1) return 'hace 1 minuto';
-  return `hace ${minutes} minutos`;
-}
-
 function renderRateResult(result: RateResult): void {
   if (result.status === 'error') {
     rateValueEl.textContent = 'No se pudo obtener la cotización.';
@@ -42,14 +32,14 @@ function renderRateResult(result: RateResult): void {
   }
 
   const { rate } = result;
-  const sourceLabel = PROVIDER_LABELS[rate.provider] ?? rate.provider;
+  const sourceLabel = RATE_PROVIDER_LABELS[rate.provider] ?? rate.provider;
 
   rateValueEl.textContent = `1 USD = ${rate.value.toLocaleString('es-AR', {
     maximumFractionDigits: 2,
   })} ARS`;
   rateMetaEl.textContent = rate.isStale
-    ? `Cotización vencida (${sourceLabel}, ${formatAge(rate.fetchedAt)})`
-    : `Fuente: ${sourceLabel} · actualizado ${formatAge(rate.fetchedAt)}`;
+    ? `Cotización vencida (${sourceLabel}, ${formatRateAge(rate.fetchedAt)})`
+    : `Fuente: ${sourceLabel} · actualizado ${formatRateAge(rate.fetchedAt)}`;
 }
 
 async function requestRate(): Promise<RateResult> {
@@ -103,20 +93,40 @@ async function currentTabId(): Promise<number | undefined> {
 }
 
 activateEl.addEventListener('change', () => {
+  const nextActive = activateEl.checked;
+
   void (async () => {
     const tabId = await currentTabId();
     if (tabId === undefined) {
-      activateEl.checked = false;
+      activateEl.checked = !nextActive;
       return;
     }
 
-    if (activateEl.checked)
-      await chrome.scripting.executeScript({
-        target: { tabId },
-        files: ['content-script.js'],
-      });
+    try {
+      if (nextActive) {
+        await chrome.scripting.executeScript({
+          target: { tabId },
+          files: ['content-script.js'],
+        });
+        await chrome.tabs.sendMessage(tabId, {
+          type: 'ACTIVATE',
+        } satisfies Message);
+      } else {
+        // Best effort: a tab that was never activated has no listener to
+        // receive this, and that failure is not a reason to keep the toggle
+        // from turning off.
+        await chrome.tabs
+          .sendMessage(tabId, { type: 'DEACTIVATE' } satisfies Message)
+          .catch(() => {});
+      }
 
-    await setTabActive(tabId, activateEl.checked);
+      await setTabActive(tabId, nextActive);
+    } catch {
+      // Injection fails on pages the extension cannot script, such as
+      // chrome:// URLs or the Chrome Web Store. Reflect that in the toggle
+      // instead of claiming a session that does not exist.
+      activateEl.checked = !nextActive;
+    }
   })();
 });
 
