@@ -84,34 +84,45 @@ El núcleo de dominio queda casi intacto:
   porque el usuario los subrayó, no porque digan algo sobre la moneda.
 - `rate-service.ts` no se toca: misma fuente, misma caché, mismo fallback, mismo modo manual.
 
-## 6. Estado activo
+## 6. Estado activo (revertido: ahora activa por defecto en todas partes)
 
-"Con la extensión activa" implica un estado por pestaña que hoy no existe: la v1 inyecta el script,
-escanea y termina.
+Esta sección documentaba la activación manual por pestaña, con `activeTab` y sin `content_scripts`
+declarativo, que evitaba a propósito la advertencia de permisos amplios. Se implementó así en la
+fase 3 y se probó en uso real.
 
-- [x] El popup pasa a tener un interruptor de activación en vez del botón "Convertir".
-- [x] El estado vive por pestaña, en `chrome.storage.session`, y se refleja en el badge del ícono
-      para que el usuario sepa si está activa sin abrir el popup. `session` y no `local`: el estado
-      solo debe durar lo que dura la sesión del navegador, igual que `activeTab`.
-- [x] Al activar, se inyecta el content script con `chrome.scripting.executeScript`. El script
-      inyectado por ahora es un stub sin comportamiento (guardia de doble inyección nada más); la
-      fase 4 le suma la lectura de selección y el panel.
+Pedido explícito posterior: la extensión pasa a estar activa por defecto en todas las páginas, con
+la opción 2 que esta sección había dejado de lado. Es una reversión consciente de la decisión de
+`DISENO.md` sección 2.2, no un error de esa fase.
 
-Limitación a resolver, no a ignorar. El permiso `activeTab` se otorga por gesto y se revoca al
-navegar. Con solo `activeTab`, la sesión activa muere en cuanto el usuario cambia de página, y hay
-que volver a activar. Sobrevive la navegación de una SPA, no la navegación real. Opciones:
+Lo que cambia respecto a lo implementado en la fase 3:
 
-1. Aceptarlo y que el usuario reactive por página.
-2. Pedir `host_permissions` amplios y reinyectar al navegar, con la advertencia de permisos que eso
-   implica en la instalación.
+- [x] `entrypoints/content.ts` (renombrado desde `content-script.ts`: WXT solo registra un content
+      script en el manifiesto declarativo si el archivo se llama `content.ts` o `*.content.ts`; con
+      otro nombre, `matches` se ignora en silencio y el script queda sin uso, como pasó en el primer
+      intento de este cambio) usa `defineContentScript({ matches: [...], main() {...} })` en vez de
+      `defineUnlistedScript`. Se inyecta solo, en toda página `http`/`https`, sin que el popup tenga
+      que llamar a `chrome.scripting.executeScript`.
+- [x] Se cae el permiso `activeTab` y `scripting` del manifiesto. `content_scripts` con `matches`
+      ya declara el acceso necesario; no hace falta gesto del usuario ni inyección programática.
+      Advertencia aceptada: Chrome muestra "Leer y cambiar tus datos en todos los sitios web que
+      visitás" al instalar, la misma que se había evitado a propósito en la fase 3.
+- [x] `background/active-tabs.ts` (estado por pestaña, en `chrome.storage.session`) se reemplaza
+      por `shared/disabled-hosts.ts` (lista de exclusión por hostname, en `chrome.storage.local`).
+      El cambio de alcance importa: antes el estado por defecto era "inactiva" y vivía mientras
+      durara la pestaña; ahora el default es "activa" y la excepción ("desactivada acá") persiste
+      por sitio entre visitas, sesiones y pestañas nuevas, hasta que el usuario la revierte a mano.
+- [x] El popup mantiene el interruptor, ahora tildado por defecto ("Activa en este sitio"). Al
+      destildarlo persiste la excepción y, si la pestaña ya tiene el content script corriendo, le
+      manda `DEACTIVATE` para que el efecto sea inmediato sin recargar. `ACTIVATE`/`DEACTIVATE`
+      sobreviven de la fase 3 con el mismo rol.
+- [x] El content script consulta su propio estado al cargar (`isHostDisabled(location.hostname)`)
+      en vez de arrancar apagado a la espera de un mensaje. El badge se invierte: ahora solo aparece
+      ("OFF", gris) cuando el sitio está desactivado, porque estar activa es el estado normal y no
+      necesita anunciarse.
 
-Recomiendo empezar por la 1 y medir cuánto molesta en uso real antes de pagar el costo de la 2.
-
-Implementado como la opción 1: `background/active-tabs.ts` limpia el estado de una pestaña
-(`chrome.tabs.onRemoved`) y lo desactiva cuando la pestaña navega a un documento nuevo
-(`chrome.tabs.onUpdated` con `status: 'loading'` y `url` presente en el `changeInfo`, que distingue
-una navegación real de un cambio de URL por `history.pushState` de una SPA: ese último no dispara
-`status: 'loading'` porque no hay carga de documento).
+Con esto, la limitación que motivaba la opción 1 (la sesión activa muriendo al navegar, por la
+semántica de `activeTab`) deja de aplicar: sin `activeTab`, no hay sesión que revocar. La extensión
+corre en cada carga de página según el estado persistido del hostname, punto.
 
 ## 7. Lectura de la selección
 
@@ -129,7 +140,7 @@ una navegación real de un cambio de URL por `history.pushState` de una SPA: ese
       había uno abierto de una selección anterior.
 - [x] Pasar el texto por `readSelection` y no hacer nada si no pasa el filtro de la sección 4.
 
-Implementado en `entrypoints/content-script.ts`.
+Implementado en `entrypoints/content.ts` (renombrado desde `content-script.ts` en la sección 6).
 
 ## 8. El panel
 
@@ -165,11 +176,12 @@ Preguntas abiertas sobre el panel, sin resolver en esta fase:
 | `core/suppression.ts`, `core/inclusion.ts` | Se eliminan. |
 | `page/context.ts`, `page/structured-data.ts`, `page/signature.ts` | Se eliminan. Solo existían para inferir moneda o para las reglas. |
 | `page/walker.ts`, `page/scheduler.ts`, `page/observer.ts`, `page/annotator.ts`, `page/feedback-popover.ts` | Se eliminan. |
-| `background/rate-service.ts` | Sin cambios. |
+| `background/rate-service.ts` | Actualizado en la fase de cotizaciones alternativas: toma una casa de dolarapi.com en vez de un único endpoint fijo, con caché independiente por casa. |
 | `background/suppression-store.ts`, `background/inclusion-store.ts`, `background/context-menu.ts` | Se eliminan. |
-| `background/router.ts` | Se recorta a los mensajes que quedan y suma el estado activo por pestaña. |
-| `entrypoints/content-script.ts` | Se reescribe entero. |
-| `entrypoints/popup/` | Se reescribe: interruptor de activación, cotización y configuración. Se cae el resumen de escaneo, el botón de revertir y el listado de reglas. |
+| `background/router.ts` | Se recorta a los mensajes que quedan (`RATE_GET`/`RATE_REFRESH`). |
+| `background/active-tabs.ts` | Nuevo en la fase 3 (estado activo por pestaña), eliminado en la sección 6 (estado por hostname en `shared/disabled-hosts.ts`). |
+| `entrypoints/content.ts` (antes `content-script.ts`) | Se reescribe entero, y se inyecta solo vía `content_scripts` declarativo en vez de por el popup. |
+| `entrypoints/popup/` | Se reescribe: interruptor de activación por sitio, selector de cotización con siete casas y label de la casa activa. Se cae el resumen de escaneo, el botón de revertir y el listado de reglas. |
 | `config/schema.ts`, `config/defaults.ts` | Sobreviven `rateSource`, `manualRate`, `rateSide` y `rateTtlMs`. Se caen `minConfidence`, `maxRulesPerHost`, `showSuppressed`, `watchMutations` y `maxAnnotations`. |
 | `shared/messages.ts` | Se caen `RULES_*`, `INCLUSION_*`, `SCAN_RUN`, `SCAN_REVERT` y `MANUAL_CONVERT_SELECTION`. |
 | Manifiesto | Se cae el permiso `contextMenus`. |
@@ -206,5 +218,5 @@ obliga a mantener vivo código que igual se va a borrar.
 | Umbrales de largo y dígitos mal calibrados, que dejan afuera montos válidos | Tabla de casos en los tests y ajuste con uso real |
 | Convertir un monto que ya estaba en dólares | Sin mitigación, por decisión de producto. Queda en criterio del usuario |
 | Selección parcial que toma un número equivocado | Expansión del rango a los límites del número antes de parsear |
-| La sesión activa muere al navegar por la semántica de `activeTab` | Aceptado en la primera versión, `host_permissions` como salida si molesta |
 | Sitios que cancelan o reescriben la selección con sus propios handlers | Se detecta en pruebas reales, sin mitigación previa |
+| Advertencia de permisos amplios ("leer y cambiar tus datos en todos los sitios web") al instalar, por el `content_scripts` declarativo de la sección 6 | Aceptada por decisión explícita de producto: la extensión pasa a estar activa en todas partes por defecto |

@@ -1,13 +1,11 @@
 import {
-  isTabActive,
-  setTabActive,
-} from '../../src/background/active-tabs';
-import {
   isValidManualRate,
   type RateResult,
 } from '../../src/background/rate-service';
 import { getConfiguration, setConfiguration } from '../../src/config/store';
+import { normalizeHostname } from '../../src/core/hostname';
 import type { RateHouse } from '../../src/core/types';
+import { isHostDisabled, setHostDisabled } from '../../src/shared/disabled-hosts';
 import type { Message } from '../../src/shared/messages';
 import {
   formatRateAge,
@@ -96,52 +94,50 @@ manualRateEl.addEventListener('change', () => {
   })();
 });
 
-async function currentTabId(): Promise<number | undefined> {
+async function currentTab(): Promise<
+  { id: number; hostname: string } | undefined
+> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  return tab?.id;
+  if (!tab?.id || !tab.url) return undefined;
+
+  try {
+    return { id: tab.id, hostname: normalizeHostname(new URL(tab.url).hostname) };
+  } catch {
+    // chrome:// pages and the Chrome Web Store have a URL the popup cannot
+    // read as a hostname; the extension never runs there anyway.
+    return undefined;
+  }
 }
 
+// Active on every site by default; this toggle only records a per-hostname
+// opt-out (`disabled-hosts.ts`), so unlike the old per-tab session it
+// persists across reloads and new tabs on the same site.
 activateEl.addEventListener('change', () => {
   const nextActive = activateEl.checked;
 
   void (async () => {
-    const tabId = await currentTabId();
-    if (tabId === undefined) {
+    const tab = await currentTab();
+    if (!tab) {
       activateEl.checked = !nextActive;
       return;
     }
 
-    try {
-      if (nextActive) {
-        await chrome.scripting.executeScript({
-          target: { tabId },
-          files: ['content-script.js'],
-        });
-        await chrome.tabs.sendMessage(tabId, {
-          type: 'ACTIVATE',
-        } satisfies Message);
-      } else {
-        // Best effort: a tab that was never activated has no listener to
-        // receive this, and that failure is not a reason to keep the toggle
-        // from turning off.
-        await chrome.tabs
-          .sendMessage(tabId, { type: 'DEACTIVATE' } satisfies Message)
-          .catch(() => {});
-      }
+    await setHostDisabled(tab.hostname, !nextActive, tab.id);
 
-      await setTabActive(tabId, nextActive);
-    } catch {
-      // Injection fails on pages the extension cannot script, such as
-      // chrome:// URLs or the Chrome Web Store. Reflect that in the toggle
-      // instead of claiming a session that does not exist.
-      activateEl.checked = !nextActive;
-    }
+    // Best effort: a tab whose content script has not run yet (e.g. the
+    // extension was just installed) has no listener to receive this, and
+    // that is not a reason to keep the toggle from reflecting the change.
+    await chrome.tabs
+      .sendMessage(tab.id, {
+        type: nextActive ? 'ACTIVATE' : 'DEACTIVATE',
+      } satisfies Message)
+      .catch(() => {});
   })();
 });
 
 async function loadActivation(): Promise<void> {
-  const tabId = await currentTabId();
-  activateEl.checked = tabId !== undefined && (await isTabActive(tabId));
+  const tab = await currentTab();
+  activateEl.checked = !tab || !(await isHostDisabled(tab.hostname));
 }
 
 void loadActivation();
